@@ -8,6 +8,7 @@
 namespace NewfoldLabs\WP\Module\Htaccess;
 
 use NewfoldLabs\WP\ModuleLoader\Container;
+use WP_CLI;
 
 /**
  * Manages all functionality for the Htaccess module.
@@ -121,6 +122,8 @@ class Manager {
 
 		// Single debounced write at safe boundaries (admin/cron/CLI only).
 		add_action( 'shutdown', array( $this, 'maybe_apply_on_shutdown' ), 0 );
+
+		WP_CLI::add_command( 'newfold htaccess', CLI::class );
 	}
 
 	/**

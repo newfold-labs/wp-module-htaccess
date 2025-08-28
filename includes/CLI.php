@@ -453,6 +453,3 @@ class CLI {
 		return array();
 	}
 }
-
-// Register the command after WordPress loads.
-WP_CLI::add_command( 'newfold htaccess', __NAMESPACE__ . '\CLI' );
