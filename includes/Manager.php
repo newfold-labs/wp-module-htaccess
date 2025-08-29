@@ -8,6 +8,7 @@
 namespace NewfoldLabs\WP\Module\Htaccess;
 
 use NewfoldLabs\WP\ModuleLoader\Container;
+use WP_CLI;
 
 /**
  * Manages all functionality for the Htaccess module.
@@ -59,6 +60,13 @@ class Manager {
 	protected $updater;
 
 	/**
+	 * Whether or not an apply is queued (dirty state).
+	 *
+	 * @var bool
+	 */
+	protected $dirty = false;
+
+	/**
 	 * Constructor.
 	 *
 	 * Keep construction minimal; heavy lifting happens in boot().
@@ -69,24 +77,6 @@ class Manager {
 	 */
 	public function __construct( Container $container ) {
 		$this->container = $container;
-	}
-
-	/**
-	 * Manual apply hook for debugging: do_action( 'nfd_htaccess_apply_now' ).
-	 *
-	 * @return void
-	 */
-	public function hook_apply_now() {
-		add_action(
-			'nfd_htaccess_apply_now',
-			function () {
-				// Log entry to confirm we reached the hook.
-				if ( defined( 'WP_DEBUG' ) && WP_DEBUG ) {
-                    error_log( '[htaccess-manager] apply_now invoked' ); // phpcs:ignore
-				}
-				$this->apply_canonical_state();
-			}
-		);
 	}
 
 	/**
@@ -104,8 +94,6 @@ class Manager {
 		$this->writer    = new Writer();
 		$this->updater   = new Updater();
 
-		$this->hook_apply_now();
-
 		// Expose to static API for other modules to use without the container.
 		Api::set_registry( $this->registry );
 		Api::set_manager( $this );
@@ -121,6 +109,8 @@ class Manager {
 
 		// Single debounced write at safe boundaries (admin/cron/CLI only).
 		add_action( 'shutdown', array( $this, 'maybe_apply_on_shutdown' ), 0 );
+
+		WP_CLI::add_command( 'newfold htaccess', CLI::class );
 	}
 
 	/**
@@ -138,6 +128,7 @@ class Manager {
 		);
 
 		set_site_transient( 'nfd_htaccess_needs_update', $payload, 5 * MINUTE_IN_SECONDS );
+		$this->mark_dirty();
 	}
 
 	/**
@@ -146,20 +137,42 @@ class Manager {
 	 * @since 1.0.0
 	 *
 	 * @param string $option    Option name.
-	 * @param mixed  $old_value Old value.
-	 * @param mixed  $value     New value.
 	 * @return void
 	 */
-	public function maybe_queue_on_option( $option, $old_value, $value ) {
+	public function maybe_queue_on_option( $option ) {
 		if ( 'permalink_structure' === $option || 'home' === $option || 'siteurl' === $option ) {
 			$this->queue_apply( 'option:' . $option );
 			return;
 		}
+	}
 
-		// Example: custom toggles can be added here later.
-		// if ( 'nfd_force_https' === $option ) {
-		// $this->queue_apply( 'option:nfd_force_https' );
-		// }
+	/**
+	 * Is this a safe context to apply at shutdown?
+	 *
+	 * @return bool
+	 */
+	protected function is_safe_context() {
+		$is_cli  = ( defined( 'WP_CLI' ) && WP_CLI );
+		$is_rest = ( defined( 'REST_REQUEST' ) && REST_REQUEST );
+		$is_ajax = ( function_exists( 'wp_doing_ajax' ) && wp_doing_ajax() );
+
+		// Admin screens (wp-admin), cron, CLI, REST API, AJAX are all safe.
+		if ( is_admin() || wp_doing_cron() || $is_cli || $is_rest || $is_ajax ) {
+			return true;
+		}
+
+		return false;
+	}
+
+	/**
+	 * Mark the manager as dirty (needs apply).
+	 *
+	 * @since 1.0.0
+	 *
+	 * @return void
+	 */
+	public function mark_dirty() {
+		$this->dirty = true;
 	}
 
 	/**
@@ -170,21 +183,32 @@ class Manager {
 	 * @return void
 	 */
 	public function maybe_apply_on_shutdown() {
-		$is_cli = ( defined( 'WP_CLI' ) && WP_CLI );
-
-		if ( ! is_admin() && ! wp_doing_cron() && ! $is_cli ) {
+		if ( ! $this->is_safe_context() || ! $this->dirty ) {
 			return;
 		}
-
-		$flag = get_site_transient( 'nfd_htaccess_needs_update' );
-		if ( empty( $flag ) ) {
-			return;
-		}
-
 		delete_site_transient( 'nfd_htaccess_needs_update' );
-
+		$this->dirty = false;
 		$this->apply_canonical_state();
 	}
+
+	/**
+	 * Acquire a write lock to prevent concurrent writes.
+	 *
+	 * @return bool True if lock acquired, false if already locked.
+	 */
+	protected function acquire_lock() {
+		return (bool) set_transient( 'nfd_htaccess_write_lock', 1, 30 ); // 30s
+	}
+
+	/**
+	 * Release the write lock.
+	 *
+	 * @return void
+	 */
+	protected function release_lock() {
+		delete_transient( 'nfd_htaccess_write_lock' );
+	}
+
 
 	/**
 	 * Compose, validate, and merge ONLY the NFD-managed block into .htaccess.
@@ -210,72 +234,79 @@ class Manager {
 			}
 		};
 
-		// 1) Build context and prep metadata.
-		$context = Context::from_wp( array() );
-		$host    = $context->host();
-		$version = '1.0.0';
-
-		// 2) Collect enabled fragments and drop WordPress-related ones.
-		$all       = $this->registry->enabled_fragments( $context );
-		$fragments = array();
-		$seen_excl = array(); // exclusivity guard by fragment id
-
-		foreach ( $all as $f ) {
-			$id = method_exists( $f, 'id' ) ? (string) $f->id() : '';
-
-			// Skip anything WordPress-y: we do NOT manage core rules here.
-			if ( '' !== $id && ( 'WordPress.core' === $id || false !== strpos( $id, 'WordPress' ) ) ) {
-				continue;
-			}
-
-			// Enforce "exclusive" fragments: keep the first seen.
-			$is_exclusive = ( method_exists( $f, 'exclusive' ) && true === $f->exclusive() );
-			if ( $is_exclusive ) {
-				if ( '' !== $id && isset( $seen_excl[ $id ] ) ) {
-					continue; // drop duplicates of exclusive fragments
-				}
-				if ( '' !== $id ) {
-					$seen_excl[ $id ] = true;
-				}
-			}
-
-			$fragments[] = $f;
+		if ( ! $this->acquire_lock() ) {
+			return; // another request is writing
 		}
+		try {
+				// 1) Build context and prep metadata.
+			$context = Context::from_wp( array() );
+			$host    = $context->host();
+			$version = '1.0.0';
 
-		$log(
-			'enabled NFD fragments: ' . count( $fragments ) . ( count( $fragments ) ? ' [' . implode(
-				',',
-				array_map(
-					function ( $f ) {
-						return method_exists( $f, 'id' ) ? $f->id() : get_class( $f );
-					},
-					$fragments
-				)
-			) . ']' : '' )
-		);
+			// 2) Collect enabled fragments and drop WordPress-related ones.
+			$all       = $this->registry->enabled_fragments( $context );
+			$fragments = array();
+			$seen_excl = array(); // exclusivity guard by fragment id
 
-		// 3) Compose body only (no global header; Updater adds an in-block header).
-		$body = $this->compose_body_only( $fragments, $context );
+			foreach ( $all as $f ) {
+				$id = method_exists( $f, 'id' ) ? (string) $f->id() : '';
 
-		// 4) Validate & remediate (lightweight: flags, handlers, BEGIN/END balance within body).
-		// We pass an empty exclusives list here because exclusivity was already enforced above.
-		$is_valid = $this->validator->is_valid( $body, array() );
+				// Skip anything WordPress-y: we do NOT manage core rules here.
+				if ( '' !== $id && ( 'WordPress.core' === $id || false !== strpos( $id, 'WordPress' ) ) ) {
+					continue;
+				}
 
-		if ( ! $is_valid ) {
-			$log( 'validator errors: ' . implode( ' | ', $this->validator->get_errors() ) );
-			$body = $this->validator->remediate( $body );
+				// Enforce "exclusive" fragments: keep the first seen.
+				$is_exclusive = ( method_exists( $f, 'exclusive' ) && true === $f->exclusive() );
+				if ( $is_exclusive ) {
+					if ( '' !== $id && isset( $seen_excl[ $id ] ) ) {
+						continue; // drop duplicates of exclusive fragments
+					}
+					if ( '' !== $id ) {
+						$seen_excl[ $id ] = true;
+					}
+				}
 
-			// Re-check after remediation; if still invalid, abort to avoid breaking .htaccess.
-			if ( ! $this->validator->is_valid( $body, array() ) ) {
-				$log( 'validation failed after remediation; skipping write' );
-				return;
+				$fragments[] = $f;
 			}
+
+			$log(
+				'enabled NFD fragments: ' . count( $fragments ) . ( count( $fragments ) ? ' [' . implode(
+					',',
+					array_map(
+						function ( $f ) {
+							return method_exists( $f, 'id' ) ? $f->id() : get_class( $f );
+						},
+						$fragments
+					)
+				) . ']' : '' )
+			);
+
+			// 3) Compose body only (no global header; Updater adds an in-block header).
+			$body = $this->compose_body_only( $fragments, $context );
+
+			// 4) Validate & remediate (lightweight: flags, handlers, BEGIN/END balance within body).
+			// We pass an empty exclusives list here because exclusivity was already enforced above.
+			$is_valid = $this->validator->is_valid( $body, array() );
+
+			if ( ! $is_valid ) {
+				$log( 'validator errors: ' . implode( ' | ', $this->validator->get_errors() ) );
+				$body = $this->validator->remediate( $body );
+
+				// Re-check after remediation; if still invalid, abort to avoid breaking .htaccess.
+				if ( ! $this->validator->is_valid( $body, array() ) ) {
+					$log( 'validation failed after remediation; skipping write' );
+					return;
+				}
+			}
+
+			// 5) Merge into the managed marker block with checksum; Updater no-ops if unchanged.
+			$ok = $this->updater->apply_managed_block( $body, $host, $version );
+
+			$log( 'merge result: ' . ( $ok ? 'ok' : 'fail' ) );
+		} finally {
+			$this->release_lock();
 		}
-
-		// 5) Merge into the managed marker block with checksum; Updater no-ops if unchanged.
-		$ok = $this->updater->apply_managed_block( $body, $host, $version );
-
-		$log( 'merge result: ' . ( $ok ? 'ok' : 'fail' ) );
 	}
 
 
