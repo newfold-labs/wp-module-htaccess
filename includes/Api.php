@@ -1,5 +1,4 @@
 <?php
-
 /**
  * Public API for the Htaccess module.
  *
@@ -82,7 +81,14 @@ class Api {
 	public static function register( Fragment $fragment, $apply = true ) {
 		self::registry()->register( $fragment );
 
-		if ( true === $apply ) {
+		$changed = false;
+		if ( self::$manager instanceof Manager ) {
+			$changed = (bool) self::$manager->persist_fragment_state( $fragment );
+		} else {
+			set_site_transient( 'nfd_htaccess_persist_needed', 1, 5 * MINUTE_IN_SECONDS );
+		}
+
+		if ( true === $apply && $changed ) {
 			self::queue_apply( 'register:' . $fragment->id() );
 		}
 	}
@@ -99,7 +105,14 @@ class Api {
 	public static function unregister( $id, $apply = true ) {
 		self::registry()->unregister( (string) $id );
 
-		if ( true === $apply ) {
+		$changed = false;
+		if ( self::$manager instanceof Manager ) {
+			$changed = (bool) self::$manager->remove_persisted_fragment( (string) $id );
+		} else {
+			set_site_transient( 'nfd_htaccess_persist_needed', 1, 5 * MINUTE_IN_SECONDS );
+		}
+
+		if ( true === $apply && $changed ) {
 			self::queue_apply( 'unregister:' . (string) $id );
 		}
 	}
