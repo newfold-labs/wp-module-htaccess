@@ -259,34 +259,117 @@ class Manager {
 	 *
 	 * @return void
 	 */
+	/**
+	 * On init, ensure the persisted NFD block equals the on-disk managed block.
+	 *
+	 * Fast path: compare checksums; if drift/missing OR legacy blocks exist,
+	 * re-apply persisted body into the "# BEGIN NFD Htaccess" block and migrate
+	 * legacy blocks in the same single write (no-op if identical and no legacy).
+	 *
+	 * @since 1.0.0
+	 *
+	 * @return void
+	 */
+	/**
+	 * On init, ensure the persisted NFD block equals the on-disk managed block.
+	 *
+	 * Fast path: compare checksums; if drift/missing OR legacy blocks exist,
+	 * re-apply persisted body into the "# BEGIN NFD Htaccess" block and migrate
+	 * legacy blocks in the same single write (no-op if identical and no legacy).
+	 *
+	 * @since 1.0.0
+	 *
+	 * @return void
+	 */
 	public function reconcile_saved_block() {
-		// If an apply is already queued for this request, skip to avoid double writes.
+		// Avoid double writes in the same request.
 		if ( $this->dirty || get_site_transient( 'nfd_htaccess_needs_update' ) ) {
 			return;
 		}
 
 		$saved = $this->load_saved_state();
-		if ( empty( $saved['checksum'] ) ) {
+		if ( empty( $saved['body'] ) || empty( $saved['checksum'] ) ) {
 			return;
 		}
 
 		$current = $this->read_current_htaccess();
+		$context = Context::from_wp( array() );
+
+		// --- NEW: Build legacy labels from BOTH current fragments and persisted state.
+		$labels_from_frags = $this->collect_legacy_marker_labels( $this->enabled_non_wp_fragments( $context ), $context );
+		$labels_from_state = $this->collect_labels_from_saved_state( $saved );
+		$legacy_labels     = array_values( array_unique( array_merge( $labels_from_frags, $labels_from_state ) ) );
+
 		if ( '' === $current ) {
-			// Missing/unreadable file; queue one apply.
-			$this->queue_apply( 'reconcile:missing-file' );
+			// Missing/unreadable: write saved state and migrate in one go.
+			$this->updater->apply_managed_block(
+				(string) $saved['body'],
+				(string) $saved['host'],
+				(string) $saved['version'],
+				$legacy_labels
+			);
 			return;
 		}
 
-		// Ask Updater to compute the CURRENT on-disk body hash in the managed block.
+		// Compute current block body hash (your existing helper or Updater's).
 		$current_hash = '';
-		if ( $this->updater instanceof Updater ) {
+		if ( method_exists( $this, 'compute_current_block_checksum' ) ) {
+			$current_hash = (string) $this->compute_current_block_checksum();
+		} elseif ( $this->updater instanceof Updater && method_exists( $this->updater, 'get_current_body_hash' ) ) {
 			$current_hash = (string) $this->updater->get_current_body_hash();
 		}
 
-		if ( $current_hash !== (string) $saved['checksum'] ) {
-			// Drift detected; queue one apply.
-			$this->queue_apply( 'reconcile:drift' );
+		// Probe for legacy blocks present in the file.
+		$has_legacy = false;
+		if ( ! empty( $legacy_labels ) ) {
+			$migrator     = new Migrator();
+			$normalized   = str_replace( array( "\r\n", "\r" ), "\n", (string) $current );
+			$probe_result = $migrator->remove_legacy_blocks( $normalized, $legacy_labels );
+			$has_legacy   = ( is_array( $probe_result ) && ! empty( $probe_result['removed'] ) );
 		}
+
+		// Rewrite if checksum differs OR legacy blocks are present.
+		if ( $current_hash !== (string) $saved['checksum'] || $has_legacy ) {
+			$this->updater->apply_managed_block(
+				(string) $saved['body'],
+				(string) $saved['host'],
+				(string) $saved['version'],
+				$legacy_labels
+			);
+		}
+	}
+
+	/**
+	 * Collect legacy marker labels by parsing the saved state's body text.
+	 *
+	 * Looks for lines like "# BEGIN Something ...", "# END Something ...".
+	 *
+	 * @since 1.0.0
+	 *
+	 * @param array $saved_state Result of load_saved_state().
+	 * @return string[] Unique marker labels found.
+	 */
+	protected function collect_labels_from_saved_state( $saved_state ) {
+		$labels = array();
+
+		if ( ! is_array( $saved_state ) || empty( $saved_state['body'] ) || ! is_string( $saved_state['body'] ) ) {
+			return $labels;
+		}
+
+		$body  = (string) $saved_state['body'];
+		$lines = preg_split( '/\r\n|\r|\n/', $body );
+
+		foreach ( $lines as $line ) {
+			// Match "# BEGIN Some Label" or "# END Some Label"
+			if ( preg_match( '/^\s*#\s*(?:BEGIN|END)\s+(.+)$/i', $line, $m ) ) {
+				$label = trim( $m[1] );
+				if ( '' !== $label ) {
+					$labels[ $label ] = true;
+				}
+			}
+		}
+
+		return array_keys( $labels );
 	}
 
 	/**
@@ -328,15 +411,44 @@ class Manager {
 			$host    = $context->host();
 			$version = '1.0.0';
 
+			// Prepare holders so they're always defined.
+			$fragments              = array(); // used when composing
+			$fragments_for_migrator = array(); // used only to collect legacy labels
+
 			// 2) Collect enabled fragments and drop WordPress-related ones.
 			// Prefer the persisted body if present; this lets rules accumulate across requests.
 			$saved = $this->load_saved_state();
 			if ( is_array( $saved ) && ! empty( $saved['body'] ) ) {
 				$body = (string) $saved['body'];
+
+				// We still need labels for migration; gather from currently enabled fragments.
+				$all       = $this->registry->enabled_fragments( $context );
+				$seen_excl = array();
+
+				foreach ( $all as $f ) {
+					$id = method_exists( $f, 'id' ) ? (string) $f->id() : '';
+
+					// Skip anything WordPress-y.
+					if ( '' !== $id && ( 'WordPress.core' === $id || false !== strpos( $id, 'WordPress' ) ) ) {
+						continue;
+					}
+
+					// Enforce "exclusive" _for label collection_ to avoid dup labels.
+					$is_exclusive = ( method_exists( $f, 'exclusive' ) && true === $f->exclusive() );
+					if ( $is_exclusive ) {
+						if ( '' !== $id && isset( $seen_excl[ $id ] ) ) {
+							continue;
+						}
+						if ( '' !== $id ) {
+							$seen_excl[ $id ] = true;
+						}
+					}
+
+					$fragments_for_migrator[] = $f;
+				}
 			} else {
 				// Fallback: compose from the currently enabled fragments (first boot, etc.).
 				$all       = $this->registry->enabled_fragments( $context );
-				$fragments = array();
 				$seen_excl = array();
 
 				foreach ( $all as $f ) {
@@ -357,16 +469,15 @@ class Manager {
 						}
 					}
 
-					$fragments[] = $f;
+					$fragments[]              = $f;
+					$fragments_for_migrator[] = $f; // also use these for migration labels
 				}
 
 				$body = $this->compose_body_only( $fragments, $context );
 			}
 
 			// 4) Validate & remediate (lightweight: flags, handlers, BEGIN/END balance within body).
-			// We pass an empty exclusives list here because exclusivity was already enforced above.
 			$is_valid = $this->validator->is_valid( $body, array() );
-
 			if ( ! $is_valid ) {
 				$body = $this->validator->remediate( $body );
 
@@ -377,11 +488,14 @@ class Manager {
 			}
 
 			// 5) Merge into the managed marker block with checksum; Updater no-ops if unchanged.
-			$ok = $this->updater->apply_managed_block( $body, $host, $version );
+			// IMPORTANT: collect labels from $fragments_for_migrator (always defined).
+			$legacy_labels = $this->collect_legacy_marker_labels( $fragments_for_migrator, $context );
+			$ok            = $this->updater->apply_managed_block( $body, $host, $version, $legacy_labels );
 		} finally {
 			$this->release_lock();
 		}
 	}
+
 
 	/**
 	 * Read current .htaccess contents (best-effort; no error silencing).
@@ -809,5 +923,85 @@ class Manager {
 		if ( ! function_exists( 'insert_with_markers' ) || ! function_exists( 'extract_from_markers' ) ) { // phpcs:ignore
 			require_once ABSPATH . 'wp-admin/includes/misc.php';
 		}
+	}
+
+	/**
+	 * Collect legacy marker labels from fragments (for migrator).
+	 *
+	 * @since 1.0.0
+	 *
+	 * @param Fragment[] $fragments Enabled fragments.
+	 * @param mixed      $context   Render context.
+	 * @return string[]
+	 */
+	protected function collect_legacy_marker_labels( $fragments, $context ) {
+		$labels = array();
+
+		foreach ( (array) $fragments as $f ) {
+			if ( ! $f instanceof Fragment ) {
+				continue;
+			}
+
+			$label = '';
+			if ( method_exists( $f, 'marker_label' ) ) {
+				$ml = (string) $f->marker_label();
+				if ( '' !== $ml ) {
+					$label = $ml;
+				}
+			}
+
+			// Fallback: sniff first "# BEGIN <label>" from rendered text (if any).
+			if ( '' === $label ) {
+				$rendered = (string) $f->render( $context );
+				$rendered = str_replace( array( "\r\n", "\r" ), "\n", $rendered );
+				if ( preg_match( '/^\s*#\s*BEGIN\s+(.+?)\s*$/m', $rendered, $m ) ) {
+					$label = trim( $m[1] );
+				}
+			}
+
+			if ( '' !== $label ) {
+				$labels[ $label ] = true; // de-dupe
+			}
+		}
+
+		return array_keys( $labels );
+	}
+
+	/**
+	 * Return enabled fragments excluding WordPress/core fragments.
+	 *
+	 * @since 1.0.0
+	 *
+	 * @param mixed $context Context.
+	 * @return Fragment[]
+	 */
+	protected function enabled_non_wp_fragments( $context ) {
+		$all       = $this->registry->enabled_fragments( $context );
+		$filtered  = array();
+		$seen_excl = array();
+
+		foreach ( $all as $f ) {
+			$id = method_exists( $f, 'id' ) ? (string) $f->id() : '';
+
+			// Skip anything WordPress-y: we do NOT manage core rules here.
+			if ( '' !== $id && ( 'WordPress.core' === $id || false !== strpos( $id, 'WordPress' ) ) ) {
+				continue;
+			}
+
+			// Respect exclusivity (first one wins) to avoid duplicate labels.
+			$is_exclusive = ( method_exists( $f, 'exclusive' ) && true === $f->exclusive() );
+			if ( $is_exclusive ) {
+				if ( '' !== $id && isset( $seen_excl[ $id ] ) ) {
+					continue;
+				}
+				if ( '' !== $id ) {
+					$seen_excl[ $id ] = true;
+				}
+			}
+
+			$filtered[] = $f;
+		}
+
+		return $filtered;
 	}
 }

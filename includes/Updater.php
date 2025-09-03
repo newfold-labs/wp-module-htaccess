@@ -47,9 +47,10 @@ class Updater {
 	 * @param string $body    Concatenated NFD fragments (no trailing newline required).
 	 * @param string $host    Host label for header (e.g., example.com).
 	 * @param string $version Module version string for header.
+	 * @param string $legacy_labels Optional array of legacy labels to remove (during Updater writes only).
 	 * @return bool True on success, false on failure or no-op when unchanged.
 	 */
-	public function apply_managed_block( $body, $host, $version ) {
+	public function apply_managed_block( $body, $host, $version, $legacy_labels = array() ) {
 		$path = $this->get_htaccess_path();
 		if ( '' === $path ) {
 			return false;
@@ -65,17 +66,30 @@ class Updater {
 		// Build the lines we intend to write inside our markers.
 		$lines = $this->build_block_lines( $body_norm, $host, $version, $body_hash, $applied_iso );
 
-		// If block already exists and checksum matches, no-op.
+		// Read full current file once (LF-normalized).
+		$current_full = $this->read_file( $path );
+		$current_full = str_replace( array( "\r\n", "\r" ), "\n", $current_full );
+
+		// Current block body hash for no-op check.
 		$current_lines     = $this->get_current_block_lines( $path );
 		$body_hash_current = '';
 		if ( ! empty( $current_lines ) ) {
 			$body_hash_current = $this->compute_body_hash_from_lines( $current_lines );
 		}
 
+		// Check if any legacy blocks exist that we plan to remove.
+		$migrator    = new Migrator();
+		$pre_migrate = $migrator->remove_legacy_blocks( $current_full, array() ); // probe no-op
+		$has_legacy  = false;
+		if ( is_array( $legacy_labels ) && ! empty( $legacy_labels ) ) {
+			$probe      = $migrator->remove_legacy_blocks( $current_full, $legacy_labels );
+			$has_legacy = ( $probe['removed'] > 0 );
+		}
+
 		// ---------- EMPTY BODY: delete the block instead of writing a blank block ----------
 		if ( '' === $body_norm ) {
-			// If no block present, nothing to do.
-			if ( empty( $current_lines ) ) {
+			// If no block and no legacy to remove, nothing to do.
+			if ( empty( $current_lines ) && ! $has_legacy ) {
 				return true;
 			}
 
@@ -84,9 +98,28 @@ class Updater {
 				return false;
 			}
 
+			// Start from current file, remove legacy, then remove managed block.
+			$after_mig = $has_legacy ? $migrator->remove_legacy_blocks( $current_full, $legacy_labels ) : array( 'text' => $current_full );
+			$txt       = $after_mig['text'];
+
 			// Remove the managed block entirely.
-			$removed = $this->remove_managed_block( $path );
-			if ( ! $removed ) {
+			$ok_remove = $this->remove_managed_block( $path ); // uses disk; but we need single write
+			// Replace with computed removal on the in-memory $txt instead for single write:
+			// emulate remove_managed_block on $txt:
+			$begin = '/^\s*#\s*BEGIN\s+' . preg_quote( $this->marker, '/' ) . '\s*$/m';
+			$end   = '/^\s*#\s*END\s+' . preg_quote( $this->marker, '/' ) . '\s*$/m';
+			if ( preg_match( $begin, $txt, $mb, PREG_OFFSET_CAPTURE ) && preg_match( $end, $txt, $me, PREG_OFFSET_CAPTURE ) ) {
+				$start = $mb[0][1];
+				$stop  = $me[0][1] + strlen( $me[0][0] );
+				if ( $stop > $start ) {
+					$txt = substr( $txt, 0, $start ) . substr( $txt, $stop );
+				}
+			}
+			$txt = preg_replace( "/\n{3,}/", "\n\n", $txt );
+			$txt = rtrim( $txt, "\n" ) . "\n";
+
+			// Single atomic write.
+			if ( ! $this->write_file_atomic( $path, $txt ) ) {
 				return false;
 			}
 
@@ -100,33 +133,39 @@ class Updater {
 		}
 		// ---------- /EMPTY BODY ----------
 
-		if ( '' !== $body_hash_current && $body_hash_current === $body_hash ) {
-			return true; // no change (body identical even if header was altered)
+		// If body unchanged AND no legacy removals needed, no-op.
+		if ( '' !== $body_hash_current && $body_hash_current === $body_hash && ! $has_legacy ) {
+			return true;
 		}
 
-		// Refresh the single rolling backup to the latest current file before writing.
-		// If creating/updating the backup fails, abort to avoid unsafe writes.
+		// Refresh backup before modifying.
 		if ( ! $this->refresh_single_backup( $path ) ) {
 			return false;
 		}
 
-		// Insert/replace the block between our markers (preserves rest of file).
-		$write_ok = (bool) insert_with_markers( $path, $this->marker, $lines ); // phpcs:ignore WordPress.NamingConventions.ValidFunctionName.FunctionNameInvalid
-		if ( ! $write_ok ) {
+		// 1) Remove legacy blocks (in-memory).
+		$after_mig = $has_legacy ? $migrator->remove_legacy_blocks( $current_full, $legacy_labels ) : array(
+			'text'    => $current_full,
+			'removed' => 0,
+		);
+
+		// 2) Inject/replace the managed block (in-memory).
+		$final = $this->inject_or_replace_managed_block( $after_mig['text'], $lines );
+
+		// 3) Single atomic write to disk.
+		if ( ! $this->write_file_atomic( $path, $final ) ) {
 			return false;
 		}
 
-		// Post-write health check using Scanner (whole-file sanity  5xx reachability).
-		$has_issues = $this->scan_for_issues();
-		if ( $has_issues ) {
-			// Restore original file from backup if issues are detected.
+		// 4) Post-write health check.
+		if ( $this->scan_for_issues() ) {
 			$this->restore_backup( $path );
 			return false;
 		}
 
-		// Backup is kept even when write is healthy (for later CRON use).
 		return true;
 	}
+
 
 	/**
 	 * Build the full set of lines for the NFD block (header + body).
@@ -471,5 +510,58 @@ class Updater {
 		$replaced = rtrim( $replaced, "\n" ) . $nl;
 
 		return $this->write_file_atomic( $path, $replaced );
+	}
+
+	/**
+	 * Build the full block text including BEGIN/END markers from body lines.
+	 *
+	 * @since 1.0.0
+	 *
+	 * @param string[] $lines Lines to place inside markers.
+	 * @return string
+	 */
+	protected function render_markered_block( $lines ) {
+		$payload = implode( "\n", (array) $lines );
+		$payload = rtrim( $payload, "\n" );
+		$out     = '# BEGIN ' . $this->marker . "\n" . $payload . "\n# END " . $this->marker . "\n";
+		return $out;
+	}
+
+	/**
+	 * Replace existing managed block or append a new one, returning full file text.
+	 *
+	 * @since 1.0.0
+	 *
+	 * @param string   $current Full existing .htaccess (LF-normalized).
+	 * @param string[] $lines   Lines for inside the NFD markers.
+	 * @return string
+	 */
+	protected function inject_or_replace_managed_block( $current, $lines ) {
+		$txt = (string) $current;
+
+		$begin = '/^\s*#\s*BEGIN\s+' . preg_quote( $this->marker, '/' ) . '\s*$/m';
+		$end   = '/^\s*#\s*END\s+' . preg_quote( $this->marker, '/' ) . '\s*$/m';
+
+		$block = $this->render_markered_block( $lines );
+
+		// If there is an existing block, replace it.
+		if ( preg_match( $begin, $txt, $mb, PREG_OFFSET_CAPTURE ) && preg_match( $end, $txt, $me, PREG_OFFSET_CAPTURE ) ) {
+			$start = $mb[0][1];
+			$stop  = $me[0][1] + strlen( $me[0][0] );
+			if ( $stop > $start ) {
+				$txt = substr( $txt, 0, $start ) . $block . substr( $txt, $stop );
+			}
+		} else {
+			// Append with a separating newline if needed.
+			if ( '' !== rtrim( $txt, "\n" ) ) {
+				$txt .= "\n";
+			}
+			$txt .= $block;
+		}
+
+		// Normalize spacing and ensure trailing newline.
+		$txt = preg_replace( "/\n{3,}/", "\n\n", $txt );
+		$txt = rtrim( $txt, "\n" ) . "\n";
+		return $txt;
 	}
 }
