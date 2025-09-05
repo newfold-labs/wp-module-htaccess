@@ -104,61 +104,53 @@ class CLI {
 	 * @return void
 	 */
 	public function status( $args, $assoc_args ) {
+		$fmt       = $this->normalize_format( $assoc_args, 'table' );
 		$context   = $this->ctx();
 		$fragments = $this->get_enabled_fragments( $context );
 
-		$diag = $this->scanner->diagnose( $context );
-		$scan = $this->scanner->scan( $context, $fragments );
+		$diag = (array) $this->scanner->diagnose( $context );
+		$scan = (array) $this->scanner->scan( $context, $fragments );
 
 		$rows = array(
 			array(
 				'key'   => 'file_valid',
-				'value' => $diag['file_valid'] ? 'yes' : 'no',
+				'value' => $this->yn( ! empty( $diag['file_valid'] ) ),
 			),
 			array(
 				'key'   => 'http_status',
-				'value' => (string) $diag['http_status'],
+				'value' => (string) $this->get( $diag, 'http_status', '' ),
 			),
 			array(
 				'key'   => 'reachable',
-				'value' => $diag['reachable'] ? 'yes' : 'no',
+				'value' => $this->yn( ! empty( $diag['reachable'] ) ),
 			),
 			array(
 				'key'   => 'nfd_status',
-				'value' => $scan['status'],
+				'value' => (string) $this->get( $scan, 'status', '' ),
 			),
 			array(
 				'key'   => 'nfd_can_remediate',
-				'value' => $scan['can_remediate'] ? 'yes' : 'no',
+				'value' => $this->yn( ! empty( $scan['can_remediate'] ) ),
 			),
 		);
 
-		$format = isset( $assoc_args['format'] ) ? $assoc_args['format'] : 'table';
-		if ( 'table' === $format ) {
-			Utils\format_items( 'table', $rows, array( 'key', 'value' ) );
-			if ( ! empty( $diag['file_issues'] ) ) {
+		$this->print_rows( $rows, array( 'key', 'value' ), $fmt );
+
+		if ( 'table' === $fmt ) {
+			$issues = (array) $this->get( $diag, 'file_issues', array() );
+			if ( ! empty( $issues ) ) {
 				WP_CLI::log( 'File issues:' );
-				foreach ( $diag['file_issues'] as $issue ) {
-					WP_CLI::log( ' - ' . $issue );
-				}
+				foreach ( $issues as $issue ) { WP_CLI::log( ' - ' . $issue ); }
 			}
-			if ( ! empty( $scan['issues'] ) ) {
+			$nfd_issues = (array) $this->get( $scan, 'issues', array() );
+			if ( ! empty( $nfd_issues ) ) {
 				WP_CLI::log( 'NFD issues:' );
-				foreach ( $scan['issues'] as $issue ) {
-					WP_CLI::log( ' - ' . $issue );
-				}
-			}
-		} else {
-			$out = array(
-				'diagnose' => $diag,
-				'scan'     => $scan,
-			);
-			if ( 'json' === $format ) {
-				WP_CLI::print_value( $out, array( 'format' => 'json' ) );
-			} else {
-				WP_CLI::print_value( $out, array( 'format' => 'yaml' ) );
+				foreach ( $nfd_issues as $issue ) { WP_CLI::log( ' - ' . $issue ); }
 			}
 		}
+
+		$ok = ! empty( $diag['file_valid'] ) && ! empty( $diag['reachable'] ) && 'ok' === $this->get( $scan, 'status', '' );
+		$this->maybe_strict_halt( $assoc_args, $ok );
 	}
 
 	/**
@@ -173,36 +165,34 @@ class CLI {
 	 * @return void
 	 */
 	public function diagnose( $args, $assoc_args ) {
-		unset( $args, $assoc_args );
-
+		$fmt     = $this->normalize_format( $assoc_args, 'table' );
 		$context = $this->ctx();
-		$diag    = $this->scanner->diagnose( $context );
+		$diag    = (array) $this->scanner->diagnose( $context );
 
-		Utils\format_items(
-			'table',
+		$rows = array(
 			array(
-				array(
-					'key'   => 'file_valid',
-					'value' => $diag['file_valid'] ? 'yes' : 'no',
-				),
-				array(
-					'key'   => 'http_status',
-					'value' => (string) $diag['http_status'],
-				),
-				array(
-					'key'   => 'reachable',
-					'value' => $diag['reachable'] ? 'yes' : 'no',
-				),
+				'key'   => 'file_valid',
+				'value' => $this->yn( ! empty( $diag['file_valid'] ) ),
 			),
-			array( 'key', 'value' )
+			array(
+				'key'   => 'http_status',
+				'value' => (string) $this->get( $diag, 'http_status', '' ),
+			),
+			array(
+				'key'   => 'reachable',
+				'value' => $this->yn( ! empty( $diag['reachable'] ) ),
+			),
 		);
+		$this->print_rows( $rows, array( 'key', 'value' ), $fmt );
 
-		if ( ! empty( $diag['file_issues'] ) ) {
+		$issues = (array) $this->get( $diag, 'file_issues', array() );
+		if ( 'table' === $fmt && ! empty( $issues ) ) {
 			WP_CLI::warning( 'File issues:' );
-			foreach ( $diag['file_issues'] as $issue ) {
-				WP_CLI::log( ' - ' . $issue );
-			}
+			foreach ( $issues as $issue ) { WP_CLI::log( ' - ' . $issue ); }
 		}
+
+		$ok = ! empty( $diag['file_valid'] ) && ! empty( $diag['reachable'] );
+		$this->maybe_strict_halt( $assoc_args, $ok );
 	}
 
 	/**
@@ -217,41 +207,39 @@ class CLI {
 	 * @return void
 	 */
 	public function scan( $args, $assoc_args ) {
-		unset( $args, $assoc_args );
-
+		$fmt       = $this->normalize_format( $assoc_args, 'table' );
 		$context   = $this->ctx();
 		$fragments = $this->get_enabled_fragments( $context );
-		$scan      = $this->scanner->scan( $context, $fragments );
+		$scan      = (array) $this->scanner->scan( $context, $fragments );
 
-		Utils\format_items(
-			'table',
+		$rows = array(
 			array(
-				array(
-					'key'   => 'status',
-					'value' => $scan['status'],
-				),
-				array(
-					'key'   => 'current_checksum',
-					'value' => (string) $scan['current_checksum'],
-				),
-				array(
-					'key'   => 'expected_checksum',
-					'value' => (string) $scan['expected_checksum'],
-				),
-				array(
-					'key'   => 'can_remediate',
-					'value' => $scan['can_remediate'] ? 'yes' : 'no',
-				),
+				'key'   => 'status',
+				'value' => (string) $this->get( $scan, 'status', '' ),
 			),
-			array( 'key', 'value' )
+			array(
+				'key'   => 'current_checksum',
+				'value' => (string) $this->get( $scan, 'current_checksum', '' ),
+			),
+			array(
+				'key'   => 'expected_checksum',
+				'value' => (string) $this->get( $scan, 'expected_checksum', '' ),
+			),
+			array(
+				'key'   => 'can_remediate',
+				'value' => $this->yn( ! empty( $scan['can_remediate'] ) ),
+			),
 		);
+		$this->print_rows( $rows, array( 'key', 'value' ), $fmt );
 
-		if ( ! empty( $scan['issues'] ) ) {
+		$issues = (array) $this->get( $scan, 'issues', array() );
+		if ( 'table' === $fmt && ! empty( $issues ) ) {
 			WP_CLI::warning( 'NFD issues:' );
-			foreach ( $scan['issues'] as $issue ) {
-				WP_CLI::log( ' - ' . $issue );
-			}
+			foreach ( $issues as $issue ) { WP_CLI::log( ' - ' . $issue ); }
 		}
+
+		$ok = 'ok' === $this->get( $scan, 'status', '' );
+		$this->maybe_strict_halt( $assoc_args, $ok );
 	}
 
 	/**
@@ -271,9 +259,7 @@ class CLI {
 	 * @return void
 	 */
 	public function apply( $args, $assoc_args ) {
-		unset( $args );
-
-		$version   = isset( $assoc_args['version'] ) ? (string) $assoc_args['version'] : '1.0.0';
+		$version   = $this->default_version( $assoc_args );
 		$context   = $this->ctx();
 		$fragments = $this->get_enabled_fragments( $context );
 
@@ -302,13 +288,11 @@ class CLI {
 	 * @return void
 	 */
 	public function remediate( $args, $assoc_args ) {
-		unset( $args );
-
-		$version   = isset( $assoc_args['version'] ) ? (string) $assoc_args['version'] : '1.0.0';
+		$version   = $this->default_version( $assoc_args );
 		$context   = $this->ctx();
 		$fragments = $this->get_enabled_fragments( $context );
 
-		$scan = $this->scanner->scan( $context, $fragments );
+		$scan = (array) $this->scanner->scan( $context, $fragments );
 		if ( ! empty( $scan['can_remediate'] ) ) {
 			$ok = $this->scanner->remediate( $context, $fragments, $version );
 			if ( $ok ) {
@@ -338,66 +322,58 @@ class CLI {
 	 * @return void
 	 */
 	public function restore( $args, $assoc_args ) {
-		unset( $args );
-
-		$version   = isset( $assoc_args['version'] ) ? (string) $assoc_args['version'] : '1.0.0';
+		$fmt       = $this->normalize_format( $assoc_args, 'table' );
+		$version   = $this->default_version( $assoc_args );
 		$context   = $this->ctx();
 		$fragments = $this->get_enabled_fragments( $context );
 
-		$report = $this->scanner->restore_latest_backup_verified( $context, $fragments, $version );
+		$report = (array) $this->scanner->restore_latest_backup_verified( $context, $fragments, $version );
 
-		Utils\format_items(
-			'table',
+		$rows = array(
 			array(
-				array(
-					'key'   => 'restored',
-					'value' => $report['restored'] ? 'yes' : 'no',
-				),
-				array(
-					'key'   => 'restored_backup',
-					'value' => (string) $report['restored_backup'],
-				),
-				array(
-					'key'   => 'full_file_valid',
-					'value' => $report['full_file_valid'] ? 'yes' : 'no',
-				),
-				array(
-					'key'   => 'nfd_status',
-					'value' => isset( $report['nfd_scan']['status'] ) ? $report['nfd_scan']['status'] : '',
-				),
-				array(
-					'key'   => 'nfd_remediated',
-					'value' => $report['nfd_remediated'] ? 'yes' : 'no',
-				),
+				'key'   => 'restored',
+				'value' => $this->yn( ! empty( $report['restored'] ) ),
 			),
-			array( 'key', 'value' )
+			array(
+				'key'   => 'restored_backup',
+				'value' => (string) $this->get( $report, 'restored_backup', '' ),
+			),
+			array(
+				'key'   => 'full_file_valid',
+				'value' => $this->yn( ! empty( $report['full_file_valid'] ) ),
+			),
+			array(
+				'key'   => 'nfd_status',
+				'value' => (string) $this->get( $this->get( $report, 'nfd_scan', array() ), 'status', '' ),
+			),
+			array(
+				'key'   => 'nfd_remediated',
+				'value' => $this->yn( ! empty( $report['nfd_remediated'] ) ),
+			),
 		);
+		$this->print_rows( $rows, array( 'key', 'value' ), $fmt );
 
-		if ( ! empty( $report['precheck'] ) ) {
-			WP_CLI::log( 'Precheck:' );
-			WP_CLI::log( ' - file_valid: ' . ( $report['precheck']['file_valid'] ? 'yes' : 'no' ) );
-			WP_CLI::log( ' - http_status: ' . (string) $report['precheck']['http_status'] );
-			WP_CLI::log( ' - reachable: ' . ( $report['precheck']['reachable'] ? 'yes' : 'no' ) );
-			if ( ! empty( $report['precheck']['file_issues'] ) ) {
-				foreach ( $report['precheck']['file_issues'] as $iss ) {
+		if ( 'table' === $fmt ) {
+			$pre = (array) $this->get( $report, 'precheck', array() );
+			if ( ! empty( $pre ) ) {
+				WP_CLI::log( 'Precheck:' );
+				WP_CLI::log( ' - file_valid: ' . $this->yn( ! empty( $pre['file_valid'] ) ) );
+				WP_CLI::log( ' - http_status: ' . (string) $this->get( $pre, 'http_status', '' ) );
+				WP_CLI::log( ' - reachable: ' . $this->yn( ! empty( $pre['reachable'] ) ) );
+				foreach ( (array) $this->get( $pre, 'file_issues', array() ) as $iss ) {
 					WP_CLI::log( '   * ' . $iss );
 				}
 			}
-		}
-
-		if ( ! empty( $report['full_file_issues'] ) ) {
-			WP_CLI::warning( 'Full-file issues after restore:' );
-			foreach ( $report['full_file_issues'] as $issue ) {
-				WP_CLI::log( ' - ' . $issue );
+			foreach ( (array) $this->get( $report, 'full_file_issues', array() ) as $issue ) {
+				WP_CLI::warning( 'Full-file issue: ' . $issue );
+			}
+			foreach ( (array) $this->get( $this->get( $report, 'nfd_scan', array() ), 'issues', array() ) as $issue ) {
+				WP_CLI::warning( 'NFD issue: ' . $issue );
 			}
 		}
 
-		if ( isset( $report['nfd_scan']['issues'] ) && ! empty( $report['nfd_scan']['issues'] ) ) {
-			WP_CLI::warning( 'NFD issues after restore:' );
-			foreach ( $report['nfd_scan']['issues'] as $issue ) {
-				WP_CLI::log( ' - ' . $issue );
-			}
-		}
+		$ok = ! empty( $report['restored'] ) && ! empty( $report['full_file_valid'] );
+		$this->maybe_strict_halt( $assoc_args, $ok );
 	}
 
 	/**
@@ -412,15 +388,16 @@ class CLI {
 	 * @return void
 	 */
 	public function list_backups( $args, $assoc_args ) {
-		unset( $args, $assoc_args );
+		$list = $this->scanner->list_backups();
+		$list = is_array( $list ) ? $list : array();
 
-		$rows = array();
-		foreach ( $this->scanner->list_backups() as $name ) {
-			$rows[] = array( 'backup' => $name );
-		}
-		if ( empty( $rows ) ) {
+		if ( empty( $list ) ) {
 			WP_CLI::success( 'No backups found.' );
 			return;
+		}
+		$rows = array();
+		foreach ( $list as $name ) {
+			$rows[] = array( 'backup' => (string) $name );
 		}
 		Utils\format_items( 'table', $rows, array( 'backup' ) );
 	}
@@ -449,7 +426,90 @@ class CLI {
 			return $this->registry->enabled_fragments( $context );
 		}
 
+		if ( class_exists( __NAMESPACE__ . '\Api' ) && method_exists( __NAMESPACE__ . '\Api', 'enabled_fragments' ) ) {
+			return Api::enabled_fragments( $context );
+		}
+
 		// Fallback: empty array to avoid fatal; apply() / remediate() will no-op.
 		return array();
+	}
+
+	/**
+	 * Helper: yes/no string from bool.
+	 *
+	 * @param bool $v Value.
+	 * @return string
+	 */
+	private function yn( $v ) {
+		return $v ? 'yes' : 'no';
+	}
+
+	/**
+	 * Helper: safe array get with default.
+	 *
+	 * @param array  $arr     Array.
+	 * @param string $key     Key.
+	 * @param mixed  $fallback Default value if key not found.
+	 * @return mixed
+	 */
+	private function get( $arr, $key, $fallback = '' ) {
+		return ( is_array( $arr ) && array_key_exists( $key, $arr ) ) ? $arr[ $key ] : $fallback;
+	}
+
+	/**
+	 * Normalize and validate format argument.
+	 *
+	 * @param array  $assoc_args Associative args.
+	 * @param string $fallback    Default format if not specified or invalid.
+	 * @return string
+	 */
+	private function normalize_format( $assoc_args, $fallback = 'table' ) {
+		$fmt = isset( $assoc_args['format'] ) ? strtolower( (string) $assoc_args['format'] ) : $fallback;
+		return in_array( $fmt, array( 'table', 'json', 'yaml' ), true ) ? $fmt : $fallback;
+	}
+
+	/**
+	 * Print rows in the specified format.
+	 *
+	 * @param array  $rows    Rows of data (array of associative arrays).
+	 * @param array  $headers Headers (keys to display).
+	 * @param string $format  Format: table, json, yaml.
+	 * @return void
+	 */
+	private function print_rows( $rows, $headers, $format ) {
+		if ( 'table' === $format ) {
+			Utils\format_items( 'table', $rows, $headers );
+			return;
+		}
+		$out = array();
+		foreach ( $rows as $r ) {
+			$out[] = $r;
+		}
+		WP_CLI::print_value( $out, array( 'format' => $format ) );
+	}
+
+	/**
+	 * Sanitize and validate a version string.
+	 *
+	 * @param array $assoc_args Associative args.
+	 * @return string
+	 */
+	private function default_version( $assoc_args ) {
+		$ver = isset( $assoc_args['version'] ) ? (string) $assoc_args['version'] : ( defined( 'NFD_MODULE_HTACCESS_VERSION' ) ? NFD_MODULE_HTACCESS_VERSION : '1.0.0' );
+		// allow digits, letters, dots, dashes, underscores
+		return preg_replace( '/[^0-9A-Za-z._-]/', '', $ver );
+	}
+
+	/**
+	 * If --strict is set and $ok is false, halt with error code 1.
+	 *
+	 * @param array $assoc_args Associative args.
+	 * @param bool  $ok         Operation success flag.
+	 * @return void
+	 */
+	private function maybe_strict_halt( $assoc_args, $ok ) {
+		if ( ! empty( $assoc_args['strict'] ) && ! $ok ) {
+			WP_CLI::halt( 1 );
+		}
 	}
 }

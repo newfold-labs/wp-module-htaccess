@@ -26,7 +26,7 @@ class Composer {
 	 *
 	 * @var string
 	 */
-	protected $version = '1.0.0';
+	protected $version;
 
 	/**
 	 * Site host cached for header rendering.
@@ -34,6 +34,17 @@ class Composer {
 	 * @var string
 	 */
 	protected $host = '';
+
+	/**
+	 * Constructor: initialize version from global constant if available.
+	 *
+	 * @since 1.0.0
+	 */
+	public function __construct() {
+		if ( defined( 'NFD_MODULE_HTACCESS_VERSION' ) && is_string( NFD_MODULE_HTACCESS_VERSION ) ) {
+			$this->version = NFD_MODULE_HTACCESS_VERSION;
+		}
+	}
 
 	/**
 	 * Set the version string to be emitted in the header.
@@ -108,10 +119,13 @@ class Composer {
 	 * @return string Header text (without trailing newline).
 	 */
 	protected function build_header( $body ) {
-		$checksum = hash( 'sha256', $body );
+		$checksum = hash( 'sha256', (string) $body );
 		$host     = $this->host;
 		if ( '' === $host ) {
 			$host = $this->detect_host();
+		}
+		if ( '' === $host ) {
+			$host = '-';
 		}
 
 		$applied = $this->utc_now_iso8601();
@@ -138,7 +152,8 @@ class Composer {
 	}
 
 	/**
-	 * Remove leading/trailing blank lines while preserving inner spacing.
+	 * Remove leading/trailing blank lines while preserving inner spacing and
+	 * indentation on the first/last non-empty lines.
 	 *
 	 * @since 1.0.0
 	 *
@@ -146,9 +161,34 @@ class Composer {
 	 * @return string Trimmed text.
 	 */
 	protected function trim_surrounding_blank_lines( $text ) {
-		$text = preg_replace( '/^\s+|\s+$/u', '', (string) $text );
-		return null === $text ? '' : $text;
+		$txt = (string) $text;
+
+		// Normalize line endings locally to reason about "\n".
+		$txt = str_replace( array( "\r\n", "\r" ), "\n", $txt );
+
+		// Split to lines and drop blank lines at the start/end only.
+		$lines = explode( "\n", $txt );
+
+		$start = 0;
+		$end   = count( $lines ) - 1;
+
+		// Skip leading blank lines (empty or whitespace-only).
+		while ( $start <= $end && '' === trim( $lines[ $start ] ) ) {
+			++$start;
+		}
+		// Skip trailing blank lines.
+		while ( $end >= $start && '' === trim( $lines[ $end ] ) ) {
+			--$end;
+		}
+
+		if ( $end < $start ) {
+			return '';
+		}
+
+		// Re-join exactly the trimmed window; preserve indentation/content.
+		return implode( "\n", array_slice( $lines, $start, $end - $start + 1 ) );
 	}
+
 
 	/**
 	 * Ensure exactly one trailing newline exists.

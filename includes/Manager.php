@@ -248,19 +248,19 @@ class Manager {
 		delete_site_transient( Options::get_option_name( 'write_lock' ) );
 	}
 
-		/**
-		 * Compose, validate, and merge ONLY the NFD-managed block into .htaccess.
-		 *
-		 * - Prefers saved state's composed body when available (durable/idempotent).
-		 * - If 'persist_needed' is set, composes from current fragments and persists
-		 *   the result back to saved state (then clears that transient).
-		 * - Collects legacy labels from BOTH current fragments and the saved body.
-		 * - Validates/remediates before writing; Updater no-ops if unchanged.
-		 *
-		 * @since 1.0.0
-		 *
-		 * @return void
-		 */
+	/**
+	 * Compose, validate, and merge ONLY the NFD-managed block into .htaccess.
+	 *
+	 * - Prefers saved state's composed body when available (durable/idempotent).
+	 * - If 'persist_needed' is set, composes from current fragments and persists
+	 *   the result back to saved state (then clears that transient).
+	 * - Collects legacy labels from BOTH current fragments and the saved body.
+	 * - Validates/remediates before writing; Updater no-ops if unchanged.
+	 *
+	 * @since 1.0.0
+	 *
+	 * @return void
+	 */
 	protected function apply_canonical_state() {
 		if ( ! $this->acquire_lock() ) {
 			return; // another request is writing
@@ -818,8 +818,6 @@ class Manager {
 		// Return hash of the body (empty body => e3b0c442...).
 		return hash( 'sha256', $body );
 	}
-
-
 
 	/**
 	 * Ensure WP marker helpers are available.
