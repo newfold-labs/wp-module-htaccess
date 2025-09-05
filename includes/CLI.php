@@ -24,7 +24,7 @@ if ( ! class_exists( '\WP_CLI' ) ) {
 }
 
 /**
- * Manage the Newfold-managed "NFD Htaccess" block.
+ * Manage the Newfold-managed marker block.
  *
  * This command provides inspection and remediation helpers for the .htaccess file:
  * - Whole-file validation + loopback HTTP reachability

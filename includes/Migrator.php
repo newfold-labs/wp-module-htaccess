@@ -42,7 +42,7 @@ class Migrator {
 				continue;
 			}
 			// Defensive: never remove our managed marker block.
-			if ( 0 === strcasecmp( $l, 'NFD Htaccess' ) ) {
+			if ( 0 === strcasecmp( $l, Config::marker() ) ) {
 				continue;
 			}
 			$labels[ $l ] = true;

@@ -332,7 +332,7 @@ class Manager {
 				delete_site_transient( Options::get_option_name( 'persist_needed' ) );
 			}
 
-			// Merge into "# BEGIN NFD Htaccess" block; Updater no-ops if unchanged.
+			// Merge into "# BEGIN marker" block; Updater no-ops if unchanged.
 			$this->updater->apply_managed_block( $body, $host, $version, $legacy_labels );
 		} finally {
 			$this->release_lock();
@@ -343,7 +343,7 @@ class Manager {
 	 * On init, ensure the persisted NFD block equals the on-disk managed block.
 	 *
 	 * Fast path: compare checksums; if drift/missing OR legacy blocks exist,
-	 * re-apply persisted body into the "# BEGIN NFD Htaccess" block and migrate
+	 * re-apply persisted body into the "# BEGIN marker" block and migrate
 	 * legacy blocks in the same single write (no-op if identical and no legacy).
 	 *
 	 * @since 1.0.0
@@ -703,7 +703,7 @@ class Manager {
 		$this->ensure_wp_file_helpers();
 		$lines = array();
 		if ( function_exists( 'extract_from_markers' ) ) {
-			$lines = extract_from_markers( $path, 'NFD Htaccess' );
+			$lines = extract_from_markers( $path, Config::marker() );
 			if ( ! is_array( $lines ) ) {
 				$lines = array();
 			}
@@ -718,8 +718,8 @@ class Manager {
 			}
 			$buf = Text::normalize_lf( $buf, false );
 
-			$begin_re = '/^\s*#\s*BEGIN\s+NFD Htaccess\s*$/mi';
-			$end_re   = '/^\s*#\s*END\s+NFD Htaccess\s*$/mi';
+			$begin_re = '/^\s*#\s*BEGIN\s+' . preg_quote( Config::marker(), '/' ) . '\s*$/mi';
+			$end_re   = '/^\s*#\s*END\s+' . preg_quote( Config::marker(), '/' ) . '\s*$/mi';
 
 			if ( ! preg_match( $begin_re, $buf, $mb, PREG_OFFSET_CAPTURE ) ) {
 				return '';

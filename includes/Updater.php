@@ -22,7 +22,18 @@ class Updater {
 	 *
 	 * @var string
 	 */
-	protected $marker = 'NFD Htaccess';
+	protected $marker;
+
+	/**
+	 * Updater constructor.
+	 *
+	 * @since 1.0.0
+	 *
+	 * @param string|null $marker Optional custom marker label (defaults to Config::marker()).
+	 */
+	public function __construct( $marker = null ) {
+		$this->marker = ( null !== $marker ) ? (string) $marker : Config::marker();
+	}
 
 	/**
 	 * Apply (insert/replace) our managed block in .htaccess.
