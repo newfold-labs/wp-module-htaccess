@@ -92,8 +92,8 @@ class Composer {
 					continue;
 				}
 				$rendered = (string) $fragment->render( $context );
-				$rendered = $this->normalize_line_endings( $rendered );
-				$rendered = $this->trim_surrounding_blank_lines( $rendered );
+				$rendered = Text::normalize_lf( $rendered );
+				$rendered = Text::trim_surrounding_blank_lines( $rendered );
 
 				if ( '' !== $rendered ) {
 					$blocks[] = $rendered;
@@ -102,12 +102,12 @@ class Composer {
 		}
 
 		$body = implode( "\n\n", $blocks );
-		$body = $this->ensure_single_trailing_newline( $body );
+		$body = Text::ensure_single_trailing_newline( $body );
 
 		$header = $this->build_header( $body );
 		$out    = $header . "\n" . $body;
 
-		return $this->ensure_single_trailing_newline( $out );
+		return Text::ensure_single_trailing_newline( $out );
 	}
 
 	/**
@@ -136,71 +136,6 @@ class Composer {
 		);
 
 		return implode( "\n", $lines );
-	}
-
-	/**
-	 * Normalize line endings to "\n".
-	 *
-	 * @since 1.0.0
-	 *
-	 * @param string $text Input text.
-	 * @return string Normalized text.
-	 */
-	protected function normalize_line_endings( $text ) {
-		$text = str_replace( array( "\r\n", "\r" ), "\n", (string) $text );
-		return $text;
-	}
-
-	/**
-	 * Remove leading/trailing blank lines while preserving inner spacing and
-	 * indentation on the first/last non-empty lines.
-	 *
-	 * @since 1.0.0
-	 *
-	 * @param string $text Input text.
-	 * @return string Trimmed text.
-	 */
-	protected function trim_surrounding_blank_lines( $text ) {
-		$txt = (string) $text;
-
-		// Normalize line endings locally to reason about "\n".
-		$txt = str_replace( array( "\r\n", "\r" ), "\n", $txt );
-
-		// Split to lines and drop blank lines at the start/end only.
-		$lines = explode( "\n", $txt );
-
-		$start = 0;
-		$end   = count( $lines ) - 1;
-
-		// Skip leading blank lines (empty or whitespace-only).
-		while ( $start <= $end && '' === trim( $lines[ $start ] ) ) {
-			++$start;
-		}
-		// Skip trailing blank lines.
-		while ( $end >= $start && '' === trim( $lines[ $end ] ) ) {
-			--$end;
-		}
-
-		if ( $end < $start ) {
-			return '';
-		}
-
-		// Re-join exactly the trimmed window; preserve indentation/content.
-		return implode( "\n", array_slice( $lines, $start, $end - $start + 1 ) );
-	}
-
-
-	/**
-	 * Ensure exactly one trailing newline exists.
-	 *
-	 * @since 1.0.0
-	 *
-	 * @param string $text Input text.
-	 * @return string Text ending with a single "\n".
-	 */
-	protected function ensure_single_trailing_newline( $text ) {
-		$text = rtrim( (string) $text, "\r\n" ) . "\n";
-		return $text;
 	}
 
 	/**
@@ -233,5 +168,38 @@ class Composer {
 		} catch ( \Exception $e ) { // phpcs:ignore WordPress.PHP.EscapeOutput.OutputNotEscaped
 			return gmdate( 'Y-m-d\TH:i:s\Z' );
 		}
+	}
+
+	/**
+	 * Compose NFD fragments into a single body (no header), separated by a blank line.
+	 * Normalizes line-endings and trims leading/trailing whitespace for each fragment.
+	 * Returns NO trailing newline (stable checksums).
+	 *
+	 * @since 1.0.0
+	 *
+	 * @param Fragment[] $fragments Fragments to render.
+	 * @param mixed      $context   Optional render context passed to fragments.
+	 * @return string Body text (no trailing newline).
+	 */
+	public static function compose_body_only( $fragments, $context = null ) {
+		$blocks = array();
+
+		if ( is_array( $fragments ) ) {
+			foreach ( $fragments as $fragment ) {
+				if ( ! $fragment instanceof Fragment ) {
+					continue;
+				}
+				$rendered = (string) $fragment->render( $context );
+				// Normalize and trim like the existing call sites.
+				$rendered = Text::normalize_lf( $rendered, false );
+				$rendered = Text::trim_surrounding_blank_lines( $rendered );
+				if ( '' !== $rendered ) {
+					$blocks[] = $rendered;
+				}
+			}
+		}
+
+		$body = implode( "\n\n", $blocks );
+		return rtrim( $body, "\n" ); // no trailing newline
 	}
 }

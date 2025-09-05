@@ -96,7 +96,7 @@ class Migrator {
 	 * @return string
 	 */
 	private function postprocess( $buf ) {
-		$buf = preg_replace( "/\n{3,}/", "\n\n", (string) $buf );
-		return rtrim( $buf, "\n" ) . "\n";
+		$buf = Text::collapse_excess_blanks( (string) $buf );
+		return Text::ensure_single_trailing_newline( $buf );
 	}
 }

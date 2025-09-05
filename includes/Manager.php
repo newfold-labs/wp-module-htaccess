@@ -287,7 +287,7 @@ class Manager {
 				$body = (string) $saved['body'];
 			} else {
 				// Compose afresh from enabled fragments (first boot or forced persist).
-				$body = $this->compose_body_only( $enabled, $context );
+				$body = Composer::compose_body_only( $enabled, $context );
 			}
 
 			// Validate & remediate before writing; abort if still invalid.
@@ -317,8 +317,8 @@ class Manager {
 					$priority = (int) ( method_exists( $f, 'priority' ) ? $f->priority() : 0 );
 
 					$block = (string) $f->render( $context );
-					$block = str_replace( array( "\r\n", "\r" ), "\n", $block );
-					$block = preg_replace( '/^\s+|\s+$/u', '', $block );
+					$block = Text::normalize_lf( $block, false );
+					$block = Text::trim_surrounding_blank_lines( $block );
 
 					$saved['blocks'][ $id ] = array(
 						'body'     => $block,
@@ -387,7 +387,7 @@ class Manager {
 		$has_legacy = false;
 		if ( ! empty( $legacy_labels ) ) {
 			$migrator     = new Migrator();
-			$normalized   = str_replace( array( "\r\n", "\r" ), "\n", (string) $current );
+			$normalized   = Text::normalize_lf( (string) $current, false );
 			$probe_result = $migrator->remove_legacy_blocks( $normalized, $legacy_labels );
 			$has_legacy   = ( is_array( $probe_result ) && ! empty( $probe_result['removed'] ) );
 		}
@@ -465,37 +465,6 @@ class Manager {
 	}
 
 	/**
-	 * Compose NFD fragments into a single body without our header,
-	 * separating fragments by a blank line.
-	 *
-	 * @since 1.0.0
-	 *
-	 * @param Fragment[] $fragments Fragments to render.
-	 * @param mixed      $context   Context.
-	 * @return string
-	 */
-	protected function compose_body_only( $fragments, $context ) {
-		$blocks = array();
-
-		foreach ( $fragments as $fragment ) {
-			if ( ! $fragment instanceof Fragment ) {
-				continue;
-			}
-			$rendered = (string) $fragment->render( $context );
-			$rendered = str_replace( array( "\r\n", "\r" ), "\n", $rendered );
-			$rendered = preg_replace( '/^\s+|\s+$/u', '', $rendered );
-			if ( '' !== $rendered ) {
-				$blocks[] = $rendered;
-			}
-		}
-
-		$body = implode( "\n\n", $blocks );
-		$body = rtrim( $body, "\n" );
-
-		return $body;
-	}
-
-	/**
 	 * Persist (or update) a single fragment's rendered block into saved state.
 	 *
 	 * Renders the fragment in the current context, stores its body and priority
@@ -518,8 +487,8 @@ class Manager {
 
 		// Render this fragment alone (normalized, trimmed).
 		$block = (string) $fragment->render( $context );
-		$block = str_replace( array( "\r\n", "\r" ), "\n", $block );
-		$block = preg_replace( '/^\s+|\s+$/u', '', $block );
+		$block = Text::normalize_lf( $block, false );
+		$block = Text::trim_surrounding_blank_lines( $block );
 
 		$id       = method_exists( $fragment, 'id' ) ? (string) $fragment->id() : get_class( $fragment );
 		$priority = (int) ( method_exists( $fragment, 'priority' ) ? $fragment->priority() : 0 );
@@ -645,8 +614,8 @@ class Manager {
 
 			foreach ( $items as $meta ) {
 				$body = isset( $meta['body'] ) ? (string) $meta['body'] : '';
-				$body = str_replace( array( "\r\n", "\r" ), "\n", $body );
-				$body = preg_replace( '/^\s+|\s+$/u', '', $body );
+				$body = Text::normalize_lf( $body, true );
+				$body = Text::trim_surrounding_blank_lines( $body );
 				if ( '' !== $body ) {
 					$blocks[] = $body;
 				}
@@ -689,7 +658,7 @@ class Manager {
 		$payload = is_array( $state ) ? $state : array();
 
 		$payload['body']      = (string) $body;
-		$payload['checksum']  = hash( 'sha256', $this->normalize_lf( (string) $body ) );
+		$payload['checksum']  = hash( 'sha256', Text::normalize_lf( (string) $body ) );
 		$payload['host']      = (string) $host;
 		$payload['version']   = (string) $version;
 		$payload['updatedAt'] = time();
@@ -699,19 +668,6 @@ class Manager {
 		} else {
 			update_option( $this->state_option_key, $payload );
 		}
-	}
-
-	/**
-	 * Normalize to LF without trailing newlines (for stable checksums).
-	 *
-	 * @since 1.0.0
-	 *
-	 * @param string $text Input.
-	 * @return string
-	 */
-	protected function normalize_lf( $text ) {
-		$text = str_replace( array( "\r\n", "\r" ), "\n", (string) $text );
-		return rtrim( $text, "\n" );
 	}
 
 	/**
@@ -760,7 +716,7 @@ class Manager {
 			if ( ! is_string( $buf ) || '' === $buf ) {
 				return '';
 			}
-			$buf = str_replace( array( "\r\n", "\r" ), "\n", $buf );
+			$buf = Text::normalize_lf( $buf, false );
 
 			$begin_re = '/^\s*#\s*BEGIN\s+NFD Htaccess\s*$/mi';
 			$end_re   = '/^\s*#\s*END\s+NFD Htaccess\s*$/mi';
@@ -812,8 +768,7 @@ class Manager {
 
 		$body_lines = array_slice( $lines, $start );
 		$body       = implode( "\n", $body_lines );
-		$body       = str_replace( array( "\r\n", "\r" ), "\n", $body );
-		$body       = rtrim( $body, "\n" );
+		$body       = Text::normalize_lf( $body, true );
 
 		// Return hash of the body (empty body => e3b0c442...).
 		return hash( 'sha256', $body );
@@ -851,7 +806,7 @@ class Manager {
 
 			$label    = '';
 			$rendered = (string) $f->render( $context );
-			$rendered = str_replace( array( "\r\n", "\r" ), "\n", $rendered );
+			$rendered = Text::normalize_lf( $rendered, false );
 			if ( preg_match( '/^\s*#\s*BEGIN\s+(.+?)\s*$/m', $rendered, $m ) ) {
 				$label = trim( $m[1] );
 			}

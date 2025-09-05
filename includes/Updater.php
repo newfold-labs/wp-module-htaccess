@@ -55,7 +55,7 @@ class Updater {
 		$this->ensure_wp_file_helpers();
 
 		// Normalize incoming body and compute checksum.
-		$body_norm   = $this->normalize( (string) $body );
+		$body_norm   = Text::normalize_lf( (string) $body, true );
 		$body_hash   = hash( 'sha256', $body_norm );
 		$applied_iso = gmdate( 'Y-m-d\TH:i:s\Z' );
 
@@ -119,8 +119,8 @@ class Updater {
 					$txt = substr( $txt, 0, $start ) . substr( $txt, $stop );
 				}
 			}
-			$txt = preg_replace( "/\n{3,}/", "\n\n", $txt );
-			$txt = rtrim( $txt, "\n" ) . "\n";
+			$txt = Text::collapse_excess_blanks( $txt );
+			$txt = Text::ensure_single_trailing_newline( $txt );
 
 			// Single atomic write.
 			if ( ! $this->write_file_atomic( $path, $txt ) ) {
@@ -198,18 +198,6 @@ class Updater {
 		}
 
 		return $lines;
-	}
-
-	/**
-	 * Normalize text to LF and trim trailing newlines.
-	 *
-	 * @param string $text Input.
-	 * @return string Normalized text.
-	 */
-	protected function normalize( $text ) {
-		$text = str_replace( array( "\r\n", "\r" ), "\n", $text );
-		$text = rtrim( $text, "\n" );
-		return $text;
 	}
 
 	/**
@@ -400,8 +388,7 @@ class Updater {
 		}
 
 		$body = implode( "\n", array_slice( $lines, $start ) );
-		$body = str_replace( array( "\r\n", "\r" ), "\n", $body );
-		$body = rtrim( $body, "\n" );
+		$body = Text::normalize_lf( $body, true );
 
 		return hash( 'sha256', $body );
 	}
@@ -487,9 +474,9 @@ class Updater {
 		}
 
 		// Normalize spacing and ensure trailing newline.
-		$txt = preg_replace( "/\n{3,}/", "\n\n", $txt );
-		$txt = rtrim( $txt, "\n" ) . "\n";
-		return $txt;
+		$txt = Text::collapse_excess_blanks( $txt );
+
+		return Text::ensure_single_trailing_newline( $txt );
 	}
 
 	/**

@@ -90,20 +90,30 @@ class Scanner {
 		$text = $this->read_file( $path );
 		if ( '' === $text ) {
 			$result['file_issues'][] = 'File is empty or unreadable.';
-		} else {
+		} elseif ( $this->validator->is_valid( $text, array() ) ) {
 			// Whole-file sanity (BEGIN/END balance, IfModule balance, flags/handlers).
-			if ( $this->validator->is_valid( $text, array() ) ) {
-				$result['file_valid'] = true;
-			} else {
-				$result['file_issues'] = $this->validator->get_errors();
-			}
+			$result['file_valid'] = true;
+		} else {
+			$result['file_issues'] = $this->validator->get_errors();
 		}
 
 		// Loopback HTTP check. 500s from Apache due to bad .htaccess happen before PHP.
-		$home      = method_exists( $context, 'home_url' ) ? (string) $context->home_url() : '';
-		$probe_url = ( '' !== $home ) ? $home . '/' : '/';
+		$home = method_exists( $context, 'home_url' ) ? (string) $context->home_url() : '';
 
-		$status                = $this->probe_http_status( $probe_url );
+		// If home URL is not available, try site URL.
+		if ( '' === $home && method_exists( $context, 'site_url' ) ) {
+			$home = (string) $context->site_url();
+		}
+
+		if ( '' !== $home ) {
+			// Ensure absolute, normalized URL ending with a slash.
+			$probe_url = rtrim( $home, '/' ) . '/';
+			$status    = $this->probe_http_status( $probe_url );
+		} else {
+			// No absolute URL available; skip probe.
+			$status = 0;
+		}
+
 		$result['http_status'] = $status;
 		$result['reachable']   = ( $status >= 200 && $status < 400 );
 
@@ -155,8 +165,8 @@ class Scanner {
 		$report['current_checksum'] = $current_hash;
 
 		// Build the expected body from provided fragments.
-		$expected_body               = $this->compose_body_only( $fragments, $context );
-		$expected_body_norm          = $this->normalize( $expected_body );
+		$expected_body               = Composer::compose_body_only( $fragments, $context );
+		$expected_body_norm          = Text::normalize_lf( $expected_body, true );
 		$expected_hash               = hash( 'sha256', $expected_body_norm );
 		$report['expected_checksum'] = $expected_hash;
 
@@ -207,8 +217,8 @@ class Scanner {
 	 */
 	public function remediate( $context, $fragments, $version ) {
 		$host          = $context->host();
-		$expected_body = $this->compose_body_only( $fragments, $context );
-		$expected_body = $this->normalize( $expected_body );
+		$expected_body = Composer::compose_body_only( $fragments, $context );
+		$expected_body = Text::normalize_lf( $expected_body, true );
 
 		// Validate/remediate expected body before writing.
 		if ( ! $this->validator->is_valid( $expected_body, array() ) ) {
@@ -358,38 +368,6 @@ class Scanner {
 	}
 
 	/**
-	 * Compose fragments into a single body without the NFD header
-	 * (mirrors Manager::compose_body_only for scanner autonomy).
-	 *
-	 * @since 1.0.0
-	 *
-	 * @param Fragment[] $fragments Fragments to render.
-	 * @param mixed      $context   Context.
-	 * @return string Body text (no trailing newline).
-	 */
-	protected function compose_body_only( $fragments, $context ) {
-		$blocks = array();
-
-		if ( is_array( $fragments ) ) {
-			foreach ( $fragments as $fragment ) {
-				if ( ! $fragment instanceof Fragment ) {
-					continue;
-				}
-				$rendered = (string) $fragment->render( $context );
-				$rendered = $this->normalize( $rendered );
-				$rendered = preg_replace( '/^\s+|\s+$/u', '', $rendered );
-				if ( '' !== $rendered ) {
-					$blocks[] = $rendered;
-				}
-			}
-		}
-
-		$body = implode( "\n\n", $blocks );
-		$body = rtrim( $body, "\n" );
-		return $body;
-	}
-
-	/**
 	 * Extract the NFD block’s checksum from marker lines.
 	 *
 	 * @since 1.0.0
@@ -430,29 +408,40 @@ class Scanner {
 	}
 
 	/**
-	 * Normalize text to LF and trim trailing newlines.
-	 *
-	 * @since 1.0.0
-	 *
-	 * @param string $text Input.
-	 * @return string Normalized.
-	 */
-	protected function normalize( $text ) {
-		$text = str_replace( array( "\r\n", "\r" ), "\n", (string) $text );
-		$text = rtrim( $text, "\n" );
-		return $text;
-	}
-
-	/**
 	 * Resolve .htaccess path via WordPress helper with ABSPATH fallback.
 	 *
 	 * @since 1.0.0
 	 *
 	 * @return string Absolute path or empty string.
 	 */
-	protected function get_htaccess_path() {
-		$path = '';
+	/**
+	 * Resolve .htaccess path via WordPress helper with ABSPATH fallback.
+	 * Prefers a Context-provided path if available.
+	 *
+	 * @since 1.0.0
+	 *
+	 * @param mixed $context Optional Context to consult (if it exposes htaccess_path()).
+	 * @return string Absolute path or empty string.
+	 */
+	protected function get_htaccess_path( $context = null ) {
+		// 1) Prefer Context if it can supply a path.
+		if ( $context && method_exists( $context, 'htaccess_path' ) ) {
+			$hp = (string) $context->htaccess_path();
+			if ( '' !== $hp ) {
+				return $hp;
+			}
+		}
 
+		// 2) Ensure get_home_path() is available (lives in wp-admin/includes/file.php).
+		if ( ! function_exists( 'get_home_path' ) && defined( 'ABSPATH' ) ) {
+			$file = ABSPATH . 'wp-admin/includes/file.php';
+			if ( is_readable( $file ) ) {
+				require_once $file;
+			}
+		}
+
+		// 3) Try get_home_path() first.
+		$path = '';
 		if ( function_exists( 'get_home_path' ) ) {
 			$home = get_home_path();
 			if ( is_string( $home ) && '' !== $home ) {
@@ -460,6 +449,7 @@ class Scanner {
 			}
 		}
 
+		// 4) Fallback to ABSPATH.
 		if ( '' === $path && defined( 'ABSPATH' ) ) {
 			$path = rtrim( ABSPATH, "/\\ \t\n\r\0\x0B" ) . DIRECTORY_SEPARATOR . '.htaccess';
 		}
@@ -497,9 +487,12 @@ class Scanner {
 	/**
 	 * HEAD request to detect 5xx quickly (best-effort).
 	 *
+	 * Tries HEAD first, then falls back to GET if HEAD is blocked.
+	 * Uses secure defaults and follows a few redirects.
+	 *
 	 * @since 1.0.0
 	 *
-	 * @param string $url URL to test.
+	 * @param string $url Absolute URL to test.
 	 * @return int HTTP status code (0 if request failed).
 	 */
 	protected function probe_http_status( $url ) {
@@ -507,23 +500,29 @@ class Scanner {
 			return 0;
 		}
 
+		// Secure and resilient defaults.
 		$args = array(
 			'method'      => 'HEAD',
 			'timeout'     => 5,
-			'redirection' => 0,
+			'redirection' => 3, // follow a few redirects
 			'blocking'    => true,
-			// In dev (LocalWP/self-signed), we relax SSL; in prod you may set true.
-			'sslverify'   => false,
+			'sslverify'   => true, // prefer secure by default
+			'user-agent'  => 'Newfold Htaccess Scanner',
 		);
 
 		$response = wp_remote_request( $url, $args );
 		if ( is_wp_error( $response ) ) {
-			return 0;
+			// Some environments block HEAD; try a short GET as fallback.
+			$args['method'] = 'GET';
+			$response       = wp_remote_request( $url, $args );
+			if ( is_wp_error( $response ) ) {
+				return 0;
+			}
 		}
 
-		$code = wp_remote_retrieve_response_code( $response );
-		return (int) $code;
+		return (int) wp_remote_retrieve_response_code( $response );
 	}
+
 
 	/**
 	 * Copy a file over another (overwrite).

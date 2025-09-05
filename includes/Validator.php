@@ -106,7 +106,8 @@ class Validator {
 
 			// Fix common accidental ']]' in rewrite flags.
 			if ( preg_match( '/\[[^\]]*\]\]/', $line ) ) {
-				$line = preg_replace( '/\]\](\s|$)/', ']' . '$1', $line );
+				$line = preg_replace( '/\]\](\s|$)/', ']$1', $line );
+
 			}
 
 			// Trim trailing spaces/tabs.
@@ -118,12 +119,10 @@ class Validator {
 		$result = implode( "\n", $out );
 
 		// Normalize double blank lines to a single blank line.
-		$result = preg_replace( "/\n{3,}/", "\n\n", $result );
+		$result = Text::collapse_excess_blanks( $result );
 
 		// Ensure single trailing newline.
-		$result = rtrim( $result, "\r\n" ) . "\n";
-
-		return $result;
+		return Text::ensure_single_trailing_newline( $result );
 	}
 
 	/**
