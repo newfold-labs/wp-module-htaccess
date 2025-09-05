@@ -22,10 +22,12 @@ if ( function_exists( 'add_action' ) ) {
 							define( 'NFD_MODULE_HTACCESS_DIR', __DIR__ );
 						}
 
-						$manager = new Manager( $container );
-						if ( method_exists( $manager, 'boot' ) ) {
-							$manager->boot();
+						if ( ! defined( 'NFD_MODULE_HTACCESS_VERSION' ) ) {
+							define( 'NFD_MODULE_HTACCESS_VERSION', '1.0.0' );
 						}
+
+						$manager = new Manager( $container );
+						$manager->boot();
 					},
 					'isActive' => true,
 					'isHidden' => true,

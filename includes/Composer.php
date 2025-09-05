@@ -26,7 +26,7 @@ class Composer {
 	 *
 	 * @var string
 	 */
-	protected $version = '1.0.0';
+	protected $version;
 
 	/**
 	 * Site host cached for header rendering.
@@ -34,6 +34,17 @@ class Composer {
 	 * @var string
 	 */
 	protected $host = '';
+
+	/**
+	 * Constructor: initialize version from global constant if available.
+	 *
+	 * @since 1.0.0
+	 */
+	public function __construct() {
+		if ( defined( 'NFD_MODULE_HTACCESS_VERSION' ) && is_string( NFD_MODULE_HTACCESS_VERSION ) ) {
+			$this->version = NFD_MODULE_HTACCESS_VERSION;
+		}
+	}
 
 	/**
 	 * Set the version string to be emitted in the header.
@@ -81,8 +92,8 @@ class Composer {
 					continue;
 				}
 				$rendered = (string) $fragment->render( $context );
-				$rendered = $this->normalize_line_endings( $rendered );
-				$rendered = $this->trim_surrounding_blank_lines( $rendered );
+				$rendered = Text::normalize_lf( $rendered, false );
+				$rendered = Text::trim_surrounding_blank_lines( $rendered );
 
 				if ( '' !== $rendered ) {
 					$blocks[] = $rendered;
@@ -91,12 +102,12 @@ class Composer {
 		}
 
 		$body = implode( "\n\n", $blocks );
-		$body = $this->ensure_single_trailing_newline( $body );
+		$body = Text::ensure_single_trailing_newline( $body );
 
 		$header = $this->build_header( $body );
 		$out    = $header . "\n" . $body;
 
-		return $this->ensure_single_trailing_newline( $out );
+		return Text::ensure_single_trailing_newline( $out );
 	}
 
 	/**
@@ -108,10 +119,13 @@ class Composer {
 	 * @return string Header text (without trailing newline).
 	 */
 	protected function build_header( $body ) {
-		$checksum = hash( 'sha256', $body );
+		$checksum = hash( 'sha256', (string) $body );
 		$host     = $this->host;
 		if ( '' === $host ) {
 			$host = $this->detect_host();
+		}
+		if ( '' === $host ) {
+			$host = '-';
 		}
 
 		$applied = $this->utc_now_iso8601();
@@ -122,45 +136,6 @@ class Composer {
 		);
 
 		return implode( "\n", $lines );
-	}
-
-	/**
-	 * Normalize line endings to "\n".
-	 *
-	 * @since 1.0.0
-	 *
-	 * @param string $text Input text.
-	 * @return string Normalized text.
-	 */
-	protected function normalize_line_endings( $text ) {
-		$text = str_replace( array( "\r\n", "\r" ), "\n", (string) $text );
-		return $text;
-	}
-
-	/**
-	 * Remove leading/trailing blank lines while preserving inner spacing.
-	 *
-	 * @since 1.0.0
-	 *
-	 * @param string $text Input text.
-	 * @return string Trimmed text.
-	 */
-	protected function trim_surrounding_blank_lines( $text ) {
-		$text = preg_replace( '/^\s+|\s+$/u', '', (string) $text );
-		return null === $text ? '' : $text;
-	}
-
-	/**
-	 * Ensure exactly one trailing newline exists.
-	 *
-	 * @since 1.0.0
-	 *
-	 * @param string $text Input text.
-	 * @return string Text ending with a single "\n".
-	 */
-	protected function ensure_single_trailing_newline( $text ) {
-		$text = rtrim( (string) $text, "\r\n" ) . "\n";
-		return $text;
 	}
 
 	/**
@@ -193,5 +168,38 @@ class Composer {
 		} catch ( \Exception $e ) { // phpcs:ignore WordPress.PHP.EscapeOutput.OutputNotEscaped
 			return gmdate( 'Y-m-d\TH:i:s\Z' );
 		}
+	}
+
+	/**
+	 * Compose NFD fragments into a single body (no header), separated by a blank line.
+	 * Normalizes line-endings and trims leading/trailing whitespace for each fragment.
+	 * Returns NO trailing newline (stable checksums).
+	 *
+	 * @since 1.0.0
+	 *
+	 * @param Fragment[] $fragments Fragments to render.
+	 * @param mixed      $context   Optional render context passed to fragments.
+	 * @return string Body text (no trailing newline).
+	 */
+	public static function compose_body_only( $fragments, $context = null ) {
+		$blocks = array();
+
+		if ( is_array( $fragments ) ) {
+			foreach ( $fragments as $fragment ) {
+				if ( ! $fragment instanceof Fragment ) {
+					continue;
+				}
+				$rendered = (string) $fragment->render( $context );
+				// Normalize and trim like the existing call sites.
+				$rendered = Text::normalize_lf( $rendered, false );
+				$rendered = Text::trim_surrounding_blank_lines( $rendered );
+				if ( '' !== $rendered ) {
+					$blocks[] = $rendered;
+				}
+			}
+		}
+
+		$body = implode( "\n\n", $blocks );
+		return rtrim( $body, "\n" ); // no trailing newline
 	}
 }

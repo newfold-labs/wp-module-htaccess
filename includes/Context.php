@@ -93,6 +93,14 @@ class Context {
 	public static function from_wp( $settings = array() ) {
 		$ctx = new static();
 
+		// Ensure get_home_path() is available
+		if ( ! function_exists( 'get_home_path' ) && defined( 'ABSPATH' ) ) {
+			$maybe = ABSPATH . 'wp-admin/includes/file.php';
+			if ( is_readable( $maybe ) ) {
+				require_once $maybe;
+			}
+		}
+
 		// Home/Site URLs.
 		if ( function_exists( 'home_url' ) ) {
 			$ctx->home_url = untrailingslashit( home_url() );
@@ -106,13 +114,20 @@ class Context {
 			$hp        = wp_parse_url( $ctx->home_url, PHP_URL_HOST );
 			$ctx->host = is_string( $hp ) ? $hp : '';
 		}
+		if ( '' === $ctx->host && '' !== $ctx->site_url ) {
+			$hp        = wp_parse_url( $ctx->site_url, PHP_URL_HOST );
+			$ctx->host = is_string( $hp ) ? $hp : '';
+		}
 
-		// Home path for .htaccess.
+		// Home path (with ABSPATH fallback)
 		if ( function_exists( 'get_home_path' ) ) {
 			$hp = get_home_path();
 			if ( is_string( $hp ) && '' !== $hp ) {
 				$ctx->home_path = rtrim( $hp, "/\\ \t\n\r\0\x0B" );
 			}
+		}
+		if ( '' === $ctx->home_path && defined( 'ABSPATH' ) ) {
+			$ctx->home_path = rtrim( ABSPATH, "/\\ \t\n\r\0\x0B" );
 		}
 
 		// Multisite flag.
@@ -121,15 +136,8 @@ class Context {
 		// CLI flag.
 		$ctx->is_cli = ( defined( 'WP_CLI' ) && WP_CLI );
 
-		// Server type: best-effort detection; treat unknown as apache-like true,
-		// fragments should still guard with <IfModule mod_rewrite.c>.
-		$server_software = isset( $_SERVER['SERVER_SOFTWARE'] ) ? strtolower( (string) $_SERVER['SERVER_SOFTWARE'] ) : '';
-		if ( false !== strpos( $server_software, 'nginx' ) ) {
-			$ctx->is_apache_like = false; // NGINX: no .htaccess
-		} else {
-			// Apache and LiteSpeed are both .htaccess-compatible.
-			$ctx->is_apache_like = true;
-		}
+		// Rewrite/server capability
+		$ctx->is_apache_like = $ctx->detect_rewrite_capability();
 
 		// Active plugins (network-aware).
 		$ctx->active_plugins = $ctx->detect_active_plugins();
@@ -193,59 +201,83 @@ class Context {
 	}
 
 	/**
-	 * Get a setting value by key with optional default.
+	 * Get a setting value by key with optional fallback.
 	 *
 	 * @since 1.0.0
 	 *
 	 * @param string $key     Setting key.
-	 * @param mixed  $default Default if not found.
+	 * @param mixed  $fallback Default if not found.
 	 * @return mixed
 	 */
-	public function setting( $key, $default = null ) {
-		if ( isset( $this->settings[ $key ] ) ) {
+	public function setting( $key, $fallback = null ) {
+		$key = (string) $key;
+		if ( is_array( $this->settings ) && array_key_exists( $key, $this->settings ) ) {
 			return $this->settings[ $key ];
 		}
-		return $default;
+		return $fallback;
 	}
 
 	/**
-	 * Accessors.
-	 */
-
-	/**
+	 * Get the site home URL (without trailing slash).
+	 *
+	 * Snapshot value captured when the Context was created via from_wp().
+	 * This usually corresponds to {@see home_url()} but normalized and cached.
+	 *
 	 * @since 1.0.0
-	 * @return string
+	 *
+	 * @return string Home URL string (no trailing slash).
 	 */
 	public function home_url() {
 		return $this->home_url;
 	}
 
 	/**
+	 * Get the site URL (without trailing slash).
+	 *
+	 * Snapshot value captured when the Context was created via from_wp().
+	 * This usually corresponds to {@see site_url()} but normalized and cached.
+	 *
 	 * @since 1.0.0
-	 * @return string
+	 *
+	 * @return string Site URL string (no trailing slash).
 	 */
 	public function site_url() {
 		return $this->site_url;
 	}
 
 	/**
+	 * Get the host name (example.com).
+	 *
+	 * Snapshot value captured when the Context was created via from_wp().
+	 *
 	 * @since 1.0.0
-	 * @return string
+	 *
+	 * @return string Host name or empty string.
 	 */
 	public function host() {
 		return $this->host;
 	}
 
 	/**
+	 * Get the absolute filesystem path to the webroot that holds .htaccess.
+	 *
+	 * Snapshot value captured when the Context was created via from_wp().
+	 *
 	 * @since 1.0.0
-	 * @return string
+	 *
+	 * @return string Absolute path or empty string.
 	 */
 	public function home_path() {
 		return $this->home_path;
 	}
 
 	/**
+	 * Whether this is a multisite network.
+	 *
+	 * Snapshot value captured when the Context was created via from_wp().
+	 *
 	 * @since 1.0.0
+	 *
 	 * @return bool
 	 */
 	public function is_multisite() {
@@ -253,7 +285,12 @@ class Context {
 	}
 
 	/**
+	 * Whether this request is running in WP-CLI.
+	 *
+	 * Snapshot value captured when the Context was created via from_wp().
+	 *
 	 * @since 1.0.0
+	 *
 	 * @return bool
 	 */
 	public function is_cli() {
@@ -261,7 +298,12 @@ class Context {
 	}
 
 	/**
+	 * Whether this environment appears to support Apache/mod_rewrite-like capabilities.
+	 *
+	 * Snapshot value captured when the Context was created via from_wp().
+	 *
 	 * @since 1.0.0
+	 *
 	 * @return bool
 	 */
 	public function is_apache_like() {
@@ -269,10 +311,77 @@ class Context {
 	}
 
 	/**
+	 * Get the list of active plugin basenames.
+	 *
+	 * Snapshot value captured when the Context was created via from_wp().
+	 *
 	 * @since 1.0.0
-	 * @return string[]
+	 *
+	 * @return string[] Array of plugin basenames.
 	 */
 	public function active_plugins() {
 		return $this->active_plugins;
+	}
+
+	/**
+	 * Detect whether the server environment supports mod_rewrite-like capabilities.
+	 *
+	 * @since 1.0.0
+	 *
+	 * @return bool
+	 */
+	protected function detect_rewrite_capability() {
+		if ( function_exists( 'got_mod_rewrite' ) ) {
+			return (bool) got_mod_rewrite();
+		}
+		$ss = isset( $_SERVER['SERVER_SOFTWARE'] ) ? strtolower( (string) $_SERVER['SERVER_SOFTWARE'] ) : '';
+		if ( false !== strpos( $ss, 'nginx' ) ) {
+			return false;
+		}
+		if ( false !== strpos( $ss, 'apache' ) ) {
+			return true;
+		}
+		if ( false !== strpos( $ss, 'litespeed' ) || false !== strpos( $ss, 'openlitespeed' ) ) {
+			return true;
+		}
+		if ( false !== strpos( $ss, 'iis' ) ) {
+			return false;
+		}
+		return true;
+	}
+
+	/**
+	 * Get the full filesystem path to the .htaccess file.
+	 *
+	 * @since 1.0.0
+	 *
+	 * @return string Full path including filename, or empty string if home_path is not set.
+	 */
+	public function htaccess_path() {
+		if ( '' === $this->home_path ) {
+			return '';
+		}
+		return $this->home_path . DIRECTORY_SEPARATOR . '.htaccess';
+	}
+
+	/**
+	 * Export context as an associative array.
+	 *
+	 * @since 1.0.0
+	 *
+	 * @return array
+	 */
+	public function to_array() {
+		return array(
+			'home_url'       => $this->home_url,
+			'site_url'       => $this->site_url,
+			'host'           => $this->host,
+			'home_path'      => $this->home_path,
+			'is_multisite'   => $this->is_multisite,
+			'is_cli'         => $this->is_cli,
+			'is_apache_like' => $this->is_apache_like,
+			'active_plugins' => $this->active_plugins,
+			'settings'       => $this->settings,
+		);
 	}
 }

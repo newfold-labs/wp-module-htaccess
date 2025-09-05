@@ -12,7 +12,7 @@ namespace NewfoldLabs\WP\Module\Htaccess;
  *
  * Responsibilities:
  * - Diagnose the current .htaccess for whole-file sanity & HTTP reachability.
- * - Inspect ONLY the managed "NFD Htaccess" block for drift/corruption.
+ * - Inspect ONLY the managed marker block for drift/corruption.
  * - Remediate our block by reapplying the composed NFD body via Updater.
  * - Restore the latest timestamped backup of the ENTIRE .htaccess, then verify,
  *   and finally re-check/remediate our NFD block.
@@ -29,7 +29,7 @@ class Scanner {
 	 *
 	 * @var string
 	 */
-	protected $marker = 'NFD Htaccess';
+	protected $marker;
 
 	/**
 	 * Updater service for marker-based writes.
@@ -46,16 +46,18 @@ class Scanner {
 	protected $validator;
 
 	/**
-	 * Construct the scanner.
+	 * Constructor.
 	 *
 	 * @since 1.0.0
 	 *
 	 * @param Updater   $updater   Updater instance.
 	 * @param Validator $validator Validator instance.
+	 * @param string    $marker    Optional marker label. Defaults to Config::marker().
 	 */
-	public function __construct( Updater $updater, Validator $validator ) {
+	public function __construct( Updater $updater, Validator $validator, $marker = null ) {
 		$this->updater   = $updater;
 		$this->validator = $validator;
+		$this->marker    = ( null !== $marker ) ? (string) $marker : Config::marker();
 	}
 
 	/**
@@ -88,22 +90,33 @@ class Scanner {
 		}
 
 		$text = $this->read_file( $path );
+		$text = Text::normalize_lf( $text, true );
 		if ( '' === $text ) {
 			$result['file_issues'][] = 'File is empty or unreadable.';
-		} else {
+		} elseif ( $this->validator->is_valid( $text, array() ) ) {
 			// Whole-file sanity (BEGIN/END balance, IfModule balance, flags/handlers).
-			if ( $this->validator->is_valid( $text, array() ) ) {
-				$result['file_valid'] = true;
-			} else {
-				$result['file_issues'] = $this->validator->get_errors();
-			}
+			$result['file_valid'] = true;
+		} else {
+			$result['file_issues'] = $this->validator->get_errors();
 		}
 
 		// Loopback HTTP check. 500s from Apache due to bad .htaccess happen before PHP.
-		$home      = method_exists( $context, 'home_url' ) ? (string) $context->home_url() : '';
-		$probe_url = ( '' !== $home ) ? $home . '/' : '/';
+		$home = method_exists( $context, 'home_url' ) ? (string) $context->home_url() : '';
 
-		$status                = $this->probe_http_status( $probe_url );
+		// If home URL is not available, try site URL.
+		if ( '' === $home && method_exists( $context, 'site_url' ) ) {
+			$home = (string) $context->site_url();
+		}
+
+		if ( '' !== $home ) {
+			// Ensure absolute, normalized URL ending with a slash.
+			$probe_url = rtrim( $home, '/' ) . '/';
+			$status    = $this->probe_http_status( $probe_url );
+		} else {
+			// No absolute URL available; skip probe.
+			$status = 0;
+		}
+
 		$result['http_status'] = $status;
 		$result['reachable']   = ( $status >= 200 && $status < 400 );
 
@@ -155,8 +168,8 @@ class Scanner {
 		$report['current_checksum'] = $current_hash;
 
 		// Build the expected body from provided fragments.
-		$expected_body               = $this->compose_body_only( $fragments, $context );
-		$expected_body_norm          = $this->normalize( $expected_body );
+		$expected_body               = Composer::compose_body_only( $fragments, $context );
+		$expected_body_norm          = Text::normalize_lf( $expected_body, true );
 		$expected_hash               = hash( 'sha256', $expected_body_norm );
 		$report['expected_checksum'] = $expected_hash;
 
@@ -207,8 +220,8 @@ class Scanner {
 	 */
 	public function remediate( $context, $fragments, $version ) {
 		$host          = $context->host();
-		$expected_body = $this->compose_body_only( $fragments, $context );
-		$expected_body = $this->normalize( $expected_body );
+		$expected_body = Composer::compose_body_only( $fragments, $context );
+		$expected_body = Text::normalize_lf( $expected_body, true );
 
 		// Validate/remediate expected body before writing.
 		if ( ! $this->validator->is_valid( $expected_body, array() ) ) {
@@ -289,15 +302,15 @@ class Scanner {
 			return $result;
 		}
 
-		sort( $backups, SORT_STRING );
-		$latest = end( $backups );
-		if ( ! $latest ) {
-			$result['full_file_issues'][] = 'Failed to identify latest backup.';
+		// Newest first, take index 0.
+		$latest = $backups[0];
+		$dir    = dirname( $path );
+		$src    = $dir . DIRECTORY_SEPARATOR . $latest;
+
+		if ( ! file_exists( $src ) || ! is_readable( $src ) ) {
+			$result['full_file_issues'][] = 'Latest backup is missing or unreadable.';
 			return $result;
 		}
-
-		$dir = dirname( $path );
-		$src = $dir . DIRECTORY_SEPARATOR . $latest;
 
 		if ( ! $this->copy_overwrite( $src, $path ) ) {
 			$result['full_file_issues'][] = 'Backup restore failed.';
@@ -309,6 +322,7 @@ class Scanner {
 
 		// ---- Validate the restored full file.
 		$text = $this->read_file( $path );
+		$text = Text::normalize_lf( $text, true );
 		if ( '' === $text ) {
 			$result['full_file_issues'][] = 'Restored file is empty or unreadable.';
 		} elseif ( $this->validator->is_valid( $text, array() ) ) {
@@ -336,7 +350,7 @@ class Scanner {
 	 *
 	 * @since 1.0.0
 	 *
-	 * @return string[] Filenames only.
+	 * @return string[] Filenames only, sorted DESC by timestamp (newest first).
 	 */
 	public function list_backups() {
 		$path = $this->get_htaccess_path();
@@ -346,47 +360,42 @@ class Scanner {
 
 		$dir   = dirname( $path );
 		$files = $this->scan_dir( $dir );
-		$out   = array();
+		$items = array();
 
 		foreach ( $files as $name ) {
-			if ( preg_match( '/^\.htaccess\.\d{8}-\d{6}\.bak$/', $name ) ) {
-				$out[] = $name;
+			if ( preg_match( '/^\.htaccess\.(\d{8})-(\d{6})\.bak$/', $name, $m ) ) {
+				// Build sortable numeric timestamp (UTC-like ordering).
+				$ts_str  = $m[1] . $m[2]; // YYYYMMDDHHMMSS
+				$ts_num  = (int) $ts_str;
+				$items[] = array(
+					'name' => $name,
+					'ts'   => $ts_num,
+				);
 			}
 		}
 
+		if ( empty( $items ) ) {
+			return array();
+		}
+
+		// Sort newest first.
+		usort(
+			$items,
+			function ( $a, $b ) {
+				if ( $a['ts'] === $b['ts'] ) {
+					// Stable tie-breaker by name to keep deterministic.
+					return strcmp( $b['name'], $a['name'] );
+				}
+				return ( $a['ts'] < $b['ts'] ) ? 1 : -1;
+			}
+		);
+
+		// Return only filenames.
+		$out = array();
+		foreach ( $items as $it ) {
+			$out[] = $it['name'];
+		}
 		return $out;
-	}
-
-	/**
-	 * Compose fragments into a single body without the NFD header
-	 * (mirrors Manager::compose_body_only for scanner autonomy).
-	 *
-	 * @since 1.0.0
-	 *
-	 * @param Fragment[] $fragments Fragments to render.
-	 * @param mixed      $context   Context.
-	 * @return string Body text (no trailing newline).
-	 */
-	protected function compose_body_only( $fragments, $context ) {
-		$blocks = array();
-
-		if ( is_array( $fragments ) ) {
-			foreach ( $fragments as $fragment ) {
-				if ( ! $fragment instanceof Fragment ) {
-					continue;
-				}
-				$rendered = (string) $fragment->render( $context );
-				$rendered = $this->normalize( $rendered );
-				$rendered = preg_replace( '/^\s+|\s+$/u', '', $rendered );
-				if ( '' !== $rendered ) {
-					$blocks[] = $rendered;
-				}
-			}
-		}
-
-		$body = implode( "\n\n", $blocks );
-		$body = rtrim( $body, "\n" );
-		return $body;
 	}
 
 	/**
@@ -421,30 +430,24 @@ class Scanner {
 	protected function extract_marker_lines( $path, $marker ) {
 		$this->ensure_wp_file_helpers();
 
-		if ( ! function_exists( 'extract_from_markers' ) ) { // phpcs:ignore WordPress.NamingConventions.ValidFunctionName.FunctionNameInvalid
+		if ( ! function_exists( 'extract_from_markers' ) ) {
 			return array();
 		}
 
-		$lines = extract_from_markers( $path, $marker ); // phpcs:ignore WordPress.NamingConventions.ValidFunctionName.FunctionNameInvalid
+		$lines = extract_from_markers( $path, $marker );
 		return is_array( $lines ) ? $lines : array();
 	}
 
 	/**
-	 * Normalize text to LF and trim trailing newlines.
+	 * Resolve .htaccess path via WordPress helper with ABSPATH fallback.
 	 *
 	 * @since 1.0.0
 	 *
-	 * @param string $text Input.
-	 * @return string Normalized.
+	 * @return string Absolute path or empty string.
 	 */
-	protected function normalize( $text ) {
-		$text = str_replace( array( "\r\n", "\r" ), "\n", (string) $text );
-		$text = rtrim( $text, "\n" );
-		return $text;
-	}
-
 	/**
 	 * Resolve .htaccess path via WordPress helper with ABSPATH fallback.
+	 * Prefers a Context-provided path if available.
 	 *
 	 * @since 1.0.0
 	 *
@@ -464,8 +467,10 @@ class Scanner {
 			$path = rtrim( ABSPATH, "/\\ \t\n\r\0\x0B" ) . DIRECTORY_SEPARATOR . '.htaccess';
 		}
 
-		return $path;
+		// Just return the computed path; callers decide whether it's readable.
+		return (string) $path;
 	}
+
 
 	/**
 	 * Ensure WP marker helpers are available.
@@ -475,31 +480,64 @@ class Scanner {
 	 * @return void
 	 */
 	protected function ensure_wp_file_helpers() {
-		if ( ! function_exists( 'insert_with_markers' ) || ! function_exists( 'extract_from_markers' ) ) { // phpcs:ignore
+		if ( ! function_exists( 'insert_with_markers' ) || ! function_exists( 'extract_from_markers' ) ) {
 			require_once ABSPATH . 'wp-admin/includes/misc.php';
 		}
 	}
 
 	/**
-	 * Read an entire file into a string (safely).
+	 * Read an entire file into a string, preferring WP_Filesystem.
 	 *
 	 * @since 1.0.0
 	 *
 	 * @param string $path Absolute path.
-	 * @return string
+	 * @return string File contents or empty string on failure.
 	 */
 	protected function read_file( $path ) {
+		$path = (string) $path;
+		if ( '' === $path ) {
+			return '';
+		}
+
+		// Prefer WP_Filesystem if available and initialized.
+		if ( function_exists( 'WP_Filesystem' ) ) {
+			global $wp_filesystem;
+
+			if ( ! $wp_filesystem ) {
+				// Bootstrap FS API (quietly).
+				require_once ABSPATH . 'wp-admin/includes/file.php';
+				WP_Filesystem();
+			}
+
+			if ( $wp_filesystem && is_object( $wp_filesystem ) ) {
+				if ( ! $wp_filesystem->exists( $path ) || ! $wp_filesystem->is_readable( $path ) ) {
+					return '';
+				}
+				$buf = $wp_filesystem->get_contents( $path );
+				return is_string( $buf ) ? $buf : '';
+			}
+		}
+
+		// Fallback: native read with explicit guards (no @ suppression).
+		if ( ! is_readable( $path ) ) {
+			return '';
+		}
+
 		// phpcs:ignore WordPress.WP.AlternativeFunctions.file_get_contents_file_get_contents
-		$buf = @file_get_contents( $path );
+		$buf = file_get_contents( $path );
+
 		return is_string( $buf ) ? $buf : '';
 	}
 
 	/**
 	 * HEAD request to detect 5xx quickly (best-effort).
 	 *
+	 * Tries HEAD first, then falls back to GET if HEAD is blocked.
+	 * Uses secure defaults and follows a few redirects.
+	 *
 	 * @since 1.0.0
 	 *
-	 * @param string $url URL to test.
+	 * @param string $url Absolute URL to test.
 	 * @return int HTTP status code (0 if request failed).
 	 */
 	protected function probe_http_status( $url ) {
@@ -507,22 +545,27 @@ class Scanner {
 			return 0;
 		}
 
+		// Secure and resilient defaults.
 		$args = array(
 			'method'      => 'HEAD',
 			'timeout'     => 5,
-			'redirection' => 0,
+			'redirection' => 3, // follow a few redirects
 			'blocking'    => true,
-			// In dev (LocalWP/self-signed), we relax SSL; in prod you may set true.
-			'sslverify'   => false,
+			'sslverify'   => true, // prefer secure by default
+			'user-agent'  => 'Newfold Htaccess Scanner',
 		);
 
 		$response = wp_remote_request( $url, $args );
 		if ( is_wp_error( $response ) ) {
-			return 0;
+			// Some environments block HEAD; try a short GET as fallback.
+			$args['method'] = 'GET';
+			$response       = wp_remote_request( $url, $args );
+			if ( is_wp_error( $response ) ) {
+				return 0;
+			}
 		}
 
-		$code = wp_remote_retrieve_response_code( $response );
-		return (int) $code;
+		return (int) wp_remote_retrieve_response_code( $response );
 	}
 
 	/**
@@ -535,10 +578,26 @@ class Scanner {
 	 * @return bool
 	 */
 	protected function copy_overwrite( $src, $dst ) {
-		// phpcs:ignore WordPress.WP.AlternativeFunctions.file_system_operations_copy
-		$ok = @copy( $src, $dst );
-		if ( $ok ) {
-			@chmod( $dst, 0644 ); // phpcs:ignore WordPress.PHP.NoSilencedErrors.Discouraged
+		// Prefer WP_Filesystem if available.
+		if ( function_exists( 'WP_Filesystem' ) ) {
+			global $wp_filesystem;
+
+			if ( ! $wp_filesystem ) {
+				require_once ABSPATH . 'wp-admin/includes/file.php';
+				WP_Filesystem();
+			}
+
+			if ( $wp_filesystem && is_object( $wp_filesystem ) ) {
+				$ok = $wp_filesystem->copy( $src, $dst, true, FS_CHMOD_FILE );
+				return (bool) $ok;
+			}
+		}
+
+		// Fallback to native copy + chmod.
+		$ok = copy( $src, $dst );
+		if ( $ok && function_exists( 'chmod' ) ) {
+			// phpcs:ignore WordPress.WP.AlternativeFunctions.file_system_operations_chmod
+			chmod( $dst, 0644 );
 		}
 		return (bool) $ok;
 	}
@@ -546,29 +605,62 @@ class Scanner {
 	/**
 	 * Lightweight directory scan (names only).
 	 *
+	 * Prefers WP_Filesystem; falls back to native ops.
+	 *
 	 * @since 1.0.0
 	 *
 	 * @param string $dir Directory path.
 	 * @return string[] Filenames (no paths).
 	 */
 	protected function scan_dir( $dir ) {
+		$dir  = (string) $dir;
 		$list = array();
 
-		// phpcs:ignore WordPress.WP.AlternativeFunctions.directory_functions_opendir
-		$dh = @opendir( $dir );
+		// Prefer WP_Filesystem if available and initialized.
+		if ( function_exists( 'WP_Filesystem' ) ) {
+			global $wp_filesystem;
+
+			if ( ! $wp_filesystem ) {
+				require_once ABSPATH . 'wp-admin/includes/file.php';
+				WP_Filesystem();
+			}
+
+			if ( $wp_filesystem && is_object( $wp_filesystem ) ) {
+				$entries = $wp_filesystem->dirlist( $dir );
+				if ( is_array( $entries ) ) {
+					foreach ( array_keys( $entries ) as $name ) {
+						if ( '.' === $name || '..' === $name ) {
+							continue;
+						}
+						$list[] = $name;
+					}
+				}
+				return $list;
+			}
+		}
+
+		// Fallback: native directory functions (guarded; minimal phpcs ignores).
+		if ( ! is_dir( $dir ) || ! is_readable( $dir ) ) {
+			return $list;
+		}
+
+		$dh = opendir( $dir );
 		if ( false === $dh ) {
 			return $list;
 		}
 
-		// phpcs:ignore WordPress.CodeAnalysis.AssignmentInCondition.FoundInWhileCondition
-		while ( false !== ( $name = @readdir( $dh ) ) ) {
-			if ( '.' === $name || '..' === $name ) {
-				continue;
+		// Pre-read to avoid assignment in the while condition.
+		$name = readdir( $dh );
+		while ( false !== $name ) {
+			if ( '.' !== $name && '..' !== $name ) {
+				$list[] = $name;
 			}
-			$list[] = $name;
+
+			$name = readdir( $dh );
 		}
 
-		@closedir( $dh ); // phpcs:ignore WordPress.WP.AlternativeFunctions.directory_functions_closedir
+		closedir( $dh );
+
 		return $list;
 	}
 }

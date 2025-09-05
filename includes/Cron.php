@@ -31,7 +31,7 @@ class Cron {
 	 *
 	 * @var string
 	 */
-	protected $version = '1.0.0';
+	protected $version;
 
 	/**
 	 * Register cron scheduling and handler.
@@ -43,6 +43,7 @@ class Cron {
 	public function register() {
 		add_action( 'init', array( $this, 'ensure_scheduled' ) );
 		add_action( $this->hook, array( $this, 'execute' ) );
+		$this->version = defined( 'NFD_MODULE_HTACCESS_VERSION' ) ? NFD_MODULE_HTACCESS_VERSION : '1.0.0';
 	}
 
 	/**
@@ -81,7 +82,7 @@ class Cron {
 		$context   = class_exists( __NAMESPACE__ . '\Context' ) ? Context::from_wp( array() ) : null;
 		$fragments = Api::enabled_fragments( $context );
 
-		// 1) Whole-file precheck (syntax + 5xx reachability).
+		// 1) Whole-file pre-check (syntax + 5xx reachability).
 		$diag = $scanner->diagnose( $context );
 
 		// 2) NFD block check and self-heal if drift detected.

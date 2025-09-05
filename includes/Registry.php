@@ -25,14 +25,44 @@ class Registry {
 	 * Register (or replace) a fragment.
 	 *
 	 * Idempotent: a fragment with the same ID will be replaced.
+	 * Returns true if the registry changed (added or replaced), false otherwise.
 	 *
 	 * @since 1.0.0
 	 *
 	 * @param Fragment $fragment Fragment instance to register.
-	 * @return void
+	 * @return bool True if state changed, false if ignored (e.g., empty ID).
 	 */
 	public function register( Fragment $fragment ) {
-		$this->fragments[ $fragment->id() ] = $fragment;
+		$id = $this->normalize_id( $fragment->id() );
+		if ( '' === $id ) {
+			return false;
+		}
+
+		$changed                = ! array_key_exists( $id, $this->fragments ) || $this->fragments[ $id ] !== $fragment;
+		$this->fragments[ $id ] = $fragment;
+
+		return $changed;
+	}
+
+	/**
+	 * Register multiple fragments at once.
+	 *
+	 * @since 1.0.0
+	 *
+	 * @param Fragment[] $fragments Array/iterable of fragments.
+	 * @return int Number of fragments that changed the registry.
+	 */
+	public function register_many( $fragments ) {
+		$count = 0;
+		if ( is_array( $fragments ) || $fragments instanceof \Traversable ) {
+			foreach ( $fragments as $f ) {
+				if ( $f instanceof Fragment && $this->register( $f ) ) {
+					++$count;
+				}
+			}
+		}
+
+		return $count;
 	}
 
 	/**
@@ -41,12 +71,35 @@ class Registry {
 	 * @since 1.0.0
 	 *
 	 * @param string $id Fragment ID.
-	 * @return void
+	 * @return bool True if it existed and was removed; false if not present.
 	 */
 	public function unregister( $id ) {
-		if ( isset( $this->fragments[ $id ] ) ) {
-			unset( $this->fragments[ $id ] );
+		$id = $this->normalize_id( $id );
+		if ( '' === $id || ! array_key_exists( $id, $this->fragments ) ) {
+			return false;
 		}
+		unset( $this->fragments[ $id ] );
+
+		return true;
+	}
+
+	/**
+	 * Unregister multiple fragments by ID.
+	 *
+	 * @since 1.0.0
+	 *
+	 * @param string[] $ids Fragment IDs.
+	 * @return int Number of removed fragments.
+	 */
+	public function unregister_many( $ids ) {
+		$removed = 0;
+		foreach ( (array) $ids as $id ) {
+			if ( $this->unregister( $id ) ) {
+				++$removed;
+			}
+		}
+
+		return $removed;
 	}
 
 	/**
@@ -58,7 +111,8 @@ class Registry {
 	 * @return bool
 	 */
 	public function has( $id ) {
-		return isset( $this->fragments[ $id ] );
+		$id = $this->normalize_id( $id );
+		return ( '' !== $id ) && array_key_exists( $id, $this->fragments );
 	}
 
 	/**
@@ -70,7 +124,8 @@ class Registry {
 	 * @return Fragment|null
 	 */
 	public function get( $id ) {
-		return isset( $this->fragments[ $id ] ) ? $this->fragments[ $id ] : null;
+		$id = $this->normalize_id( $id );
+		return ( '' !== $id && array_key_exists( $id, $this->fragments ) ) ? $this->fragments[ $id ] : null;
 	}
 
 	/**
@@ -85,8 +140,31 @@ class Registry {
 	}
 
 	/**
+	 * Return registered fragment IDs (unsorted).
+	 *
+	 * @since 1.0.0
+	 *
+	 * @return string[]
+	 */
+	public function ids() {
+		return array_keys( $this->fragments );
+	}
+
+	/**
+	 * Return the total number of registered fragments.
+	 *
+	 * @since 1.0.0
+	 *
+	 * @return int
+	 */
+	public function count() {
+		return count( $this->fragments );
+	}
+
+	/**
 	 * Return only fragments that are enabled for the given context,
-	 * sorted by ascending priority (lower number renders earlier).
+	 * sorted by ascending priority (lower number renders earlier),
+	 * then by ID for stable ordering.
 	 *
 	 * @since 1.0.0
 	 *
@@ -114,7 +192,6 @@ class Registry {
 				$pb = (int) ( method_exists( $b, 'priority' ) ? $b->priority() : 0 );
 
 				if ( $pa === $pb ) {
-					// Stable-ish tie-breaker by ID to avoid flapping output.
 					$ia = method_exists( $a, 'id' ) ? (string) $a->id() : '';
 					$ib = method_exists( $b, 'id' ) ? (string) $b->id() : '';
 					return strcmp( $ia, $ib );
@@ -136,5 +213,17 @@ class Registry {
 	 */
 	public function clear() {
 		$this->fragments = array();
+	}
+
+	/**
+	 * Normalize an ID to a trimmed string (empty if invalid).
+	 *
+	 * @since 1.0.0
+	 *
+	 * @param mixed $id Raw ID.
+	 * @return string Normalized ID or '' if invalid.
+	 */
+	protected function normalize_id( $id ) {
+		return trim( (string) $id );
 	}
 }
