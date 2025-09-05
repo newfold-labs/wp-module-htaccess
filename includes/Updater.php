@@ -11,13 +11,9 @@
 namespace NewfoldLabs\WP\Module\Htaccess;
 
 /**
- * Updater that manages ONLY the Newfold-managed block via markers,
- * leaving native WordPress rules and any other content untouched.
+ * Class Updater
  *
- * Adds an in-block header and checksum, and skips writes if unchanged.
- * Maintains a single rolling backup refreshed before every write, validates after write via Scanner, and restores from backup on issues.
- *
- * @package NewfoldLabs\WP\Module\Htaccess
+ * @since 1.0.0
  */
 class Updater {
 
@@ -44,10 +40,10 @@ class Updater {
 	 *
 	 * @since 1.0.0
 	 *
-	 * @param string $body    Concatenated NFD fragments (no trailing newline required).
-	 * @param string $host    Host label for header (e.g., example.com).
-	 * @param string $version Module version string for header.
-	 * @param string $legacy_labels Optional array of legacy labels to remove (during Updater writes only).
+	 * @param string $body           Concatenated NFD fragments (no trailing newline required).
+	 * @param string $host           Host label for header (e.g., example.com).
+	 * @param string $version        Module version string for header.
+	 * @param array  $legacy_labels  Optional array of legacy labels to remove (during Updater writes only).
 	 * @return bool True on success, false on failure or no-op when unchanged.
 	 */
 	public function apply_managed_block( $body, $host, $version, $legacy_labels = array() ) {
@@ -70,20 +66,33 @@ class Updater {
 		$current_full = $this->read_file( $path );
 		$current_full = str_replace( array( "\r\n", "\r" ), "\n", $current_full );
 
+		// Derive current block lines from the in-memory text (avoid extra disk IO).
+		$pair  = $this->get_marker_regex_pair();
+		$begin = $pair[0];
+		$end   = $pair[1];
+
+		$current_lines = array();
+		if ( preg_match( $begin, $current_full, $mb, PREG_OFFSET_CAPTURE ) && preg_match( $end, $current_full, $me, PREG_OFFSET_CAPTURE ) ) {
+			$start = $mb[0][1] + strlen( $mb[0][0] ) + 1; // after BEGIN line + newline
+			$stop  = $me[0][1];                           // start of END line
+			if ( $stop > $start ) {
+				$inside        = substr( $current_full, $start, $stop - $start );
+				$current_lines = explode( "\n", rtrim( $inside, "\n" ) );
+			}
+		}
+
 		// Current block body hash for no-op check.
-		$current_lines     = $this->get_current_block_lines( $path );
 		$body_hash_current = '';
 		if ( ! empty( $current_lines ) ) {
 			$body_hash_current = $this->compute_body_hash_from_lines( $current_lines );
 		}
 
 		// Check if any legacy blocks exist that we plan to remove.
-		$migrator    = new Migrator();
-		$pre_migrate = $migrator->remove_legacy_blocks( $current_full, array() ); // probe no-op
-		$has_legacy  = false;
+		$migrator   = new Migrator();
+		$has_legacy = false;
 		if ( is_array( $legacy_labels ) && ! empty( $legacy_labels ) ) {
 			$probe      = $migrator->remove_legacy_blocks( $current_full, $legacy_labels );
-			$has_legacy = ( $probe['removed'] > 0 );
+			$has_legacy = ( ! empty( $probe['removed'] ) && $probe['removed'] > 0 );
 		}
 
 		// ---------- EMPTY BODY: delete the block instead of writing a blank block ----------
@@ -98,16 +107,11 @@ class Updater {
 				return false;
 			}
 
-			// Start from current file, remove legacy, then remove managed block.
+			// Start from current file, remove legacy, then remove managed block (all in-memory).
 			$after_mig = $has_legacy ? $migrator->remove_legacy_blocks( $current_full, $legacy_labels ) : array( 'text' => $current_full );
 			$txt       = $after_mig['text'];
 
-			// Remove the managed block entirely.
-			$ok_remove = $this->remove_managed_block( $path ); // uses disk; but we need single write
-			// Replace with computed removal on the in-memory $txt instead for single write:
-			// emulate remove_managed_block on $txt:
-			$begin = '/^\s*#\s*BEGIN\s+' . preg_quote( $this->marker, '/' ) . '\s*$/m';
-			$end   = '/^\s*#\s*END\s+' . preg_quote( $this->marker, '/' ) . '\s*$/m';
+			// Remove the managed block entirely (in-memory).
 			if ( preg_match( $begin, $txt, $mb, PREG_OFFSET_CAPTURE ) && preg_match( $end, $txt, $me, PREG_OFFSET_CAPTURE ) ) {
 				$start = $mb[0][1];
 				$stop  = $me[0][1] + strlen( $me[0][0] );
@@ -143,21 +147,23 @@ class Updater {
 			return false;
 		}
 
-		// 1) Remove legacy blocks (in-memory).
-		$after_mig = $has_legacy ? $migrator->remove_legacy_blocks( $current_full, $legacy_labels ) : array(
+		// Remove legacy blocks (in-memory).
+		$after_mig = $has_legacy
+		? $migrator->remove_legacy_blocks( $current_full, $legacy_labels )
+		: array(
 			'text'    => $current_full,
 			'removed' => 0,
 		);
 
-		// 2) Inject/replace the managed block (in-memory).
+		// Inject/replace the managed block (in-memory).
 		$final = $this->inject_or_replace_managed_block( $after_mig['text'], $lines );
 
-		// 3) Single atomic write to disk.
+		// Single atomic write to disk.
 		if ( ! $this->write_file_atomic( $path, $final ) ) {
 			return false;
 		}
 
-		// 4) Post-write health check.
+		// Post-write health check.
 		if ( $this->scan_for_issues() ) {
 			$this->restore_backup( $path );
 			return false;
@@ -165,7 +171,6 @@ class Updater {
 
 		return true;
 	}
-
 
 	/**
 	 * Build the full set of lines for the NFD block (header + body).
@@ -193,43 +198,6 @@ class Updater {
 		}
 
 		return $lines;
-	}
-
-	/**
-	 * Read current NFD block lines (without BEGIN/END markers).
-	 *
-	 * @param string $path .htaccess path.
-	 * @return array Lines inside the marker block, or empty array if none.
-	 */
-	protected function get_current_block_lines( $path ) {
-		$this->ensure_wp_file_helpers();
-
-		$existing = array();
-		if ( function_exists( 'extract_from_markers' ) ) { // phpcs:ignore WordPress.NamingConventions.ValidFunctionName.FunctionNameInvalid
-			$existing = extract_from_markers( $path, $this->marker ); // phpcs:ignore WordPress.NamingConventions.ValidFunctionName.FunctionNameInvalid
-			if ( ! is_array( $existing ) ) {
-				$existing = array();
-			}
-		}
-		return $existing;
-	}
-
-	/**
-	 * Extract the checksum from an existing block (if present).
-	 *
-	 * @param array $lines Block lines.
-	 * @return string sha256 or empty string if not found.
-	 */
-	protected function extract_hash_from_lines( $lines ) {
-		if ( ! is_array( $lines ) ) {
-			return '';
-		}
-		foreach ( $lines as $line ) {
-			if ( preg_match( '/^\s*#\s*STATE\s+sha256:\s*([0-9a-f]{64})\b/i', $line, $m ) ) {
-				return (string) $m[1];
-			}
-		}
-		return '';
 	}
 
 	/**
@@ -272,7 +240,7 @@ class Updater {
 	 * @return void
 	 */
 	protected function ensure_wp_file_helpers() {
-		if ( ! function_exists( 'insert_with_markers' ) || ! function_exists( 'extract_from_markers' ) ) { // phpcs:ignore
+		if ( ! function_exists( 'insert_with_markers' ) || ! function_exists( 'extract_from_markers' ) ) {
 			require_once ABSPATH . 'wp-admin/includes/misc.php';
 		}
 	}
@@ -346,7 +314,7 @@ class Updater {
 			return '';
 		}
 		// phpcs:ignore WordPress.WP.AlternativeFunctions.file_get_contents_file_get_contents
-		$buf = @file_get_contents( $path );
+		$buf = file_get_contents( $path );
 		return is_string( $buf ) ? $buf : '';
 	}
 
@@ -363,14 +331,16 @@ class Updater {
 		$path = (string) $path;
 		$tmp  = $path . '.tmp-' . uniqid( 'nfd', true );
 
-		// phpcs:ignore WordPress.WP.AlternativeFunctions.file_system_read_file_put_contents
-		if ( false === @file_put_contents( $tmp, (string) $data ) ) {
+		// Atomic local write is intentional; WP_Filesystem isn't guaranteed or atomic.
+		// phpcs:ignore WordPress.WP.AlternativeFunctions.file_system_operations_file_put_contents
+		if ( false === file_put_contents( $tmp, (string) $data ) ) {
 			return false;
 		}
 
-		// phpcs:ignore WordPress.WP.AlternativeFunctions.rename_function_rename
-		if ( ! @rename( $tmp, $path ) ) {
-			@unlink( $tmp ); // phpcs:ignore WordPress.WP.AlternativeFunctions.unlink_unlink
+		// We prefer POSIX-style rename for atomic replace on same filesystem.
+		// phpcs:ignore WordPress.WP.AlternativeFunctions.rename_rename
+		if ( ! rename( $tmp, $path ) ) {
+			wp_delete_file( $tmp );
 			return false;
 		}
 
@@ -453,8 +423,8 @@ class Updater {
 		$this->ensure_wp_file_helpers();
 
 		$lines = array();
-		if ( function_exists( 'extract_from_markers' ) ) { // phpcs:ignore WordPress.NamingConventions.ValidFunctionName.FunctionNameInvalid
-			$lines = extract_from_markers( $path, $this->marker ); // phpcs:ignore WordPress.NamingConventions.ValidFunctionName.FunctionNameInvalid
+		if ( function_exists( 'extract_from_markers' ) ) {
+			$lines = extract_from_markers( $path, $this->marker );
 			if ( ! is_array( $lines ) ) {
 				$lines = array();
 			}
@@ -466,50 +436,6 @@ class Updater {
 		}
 
 		return $this->compute_body_hash_from_lines( $lines );
-	}
-
-	/**
-	 * Remove the entire managed marker block (BEGIN..END) from .htaccess.
-	 *
-	 * @since 1.0.0
-	 *
-	 * @param string $path Absolute .htaccess path.
-	 * @return bool True on success, false on failure.
-	 */
-	protected function remove_managed_block( $path ) {
-		$path = (string) $path;
-		if ( '' === $path || ! is_readable( $path ) || ! is_writable( $path ) ) {
-			return false;
-		}
-
-		// phpcs:ignore WordPress.WP.AlternativeFunctions.file_get_contents_file_get_contents
-		$buf = @file_get_contents( $path );
-		if ( ! is_string( $buf ) ) {
-			return false;
-		}
-
-		$nl  = "\n";
-		$txt = str_replace( array( "\r\n", "\r" ), $nl, $buf );
-
-		// Regex to remove the block including BEGIN/END lines (greedy across lines).
-		$begin = preg_quote( '# BEGIN ' . $this->marker, '/' );
-		$end   = preg_quote( '# END ' . $this->marker, '/' );
-		$re    = '/^\s*' . $begin . '\s*$.*?^\s*' . $end . '\s*$/ms';
-
-		$replaced = preg_replace( $re, '', $txt, 1, $count );
-		if ( null === $replaced ) {
-			return false;
-		}
-		if ( 0 === $count ) {
-			// Nothing to remove; treat as success/no-op.
-			return true;
-		}
-
-		// Collapse extra blank lines introduced by removal.
-		$replaced = preg_replace( "/\n{3,}/", "\n\n", $replaced );
-		$replaced = rtrim( $replaced, "\n" ) . $nl;
-
-		return $this->write_file_atomic( $path, $replaced );
 	}
 
 	/**
@@ -539,8 +465,9 @@ class Updater {
 	protected function inject_or_replace_managed_block( $current, $lines ) {
 		$txt = (string) $current;
 
-		$begin = '/^\s*#\s*BEGIN\s+' . preg_quote( $this->marker, '/' ) . '\s*$/m';
-		$end   = '/^\s*#\s*END\s+' . preg_quote( $this->marker, '/' ) . '\s*$/m';
+		$pair  = $this->get_marker_regex_pair();
+		$begin = $pair[0];
+		$end   = $pair[1];
 
 		$block = $this->render_markered_block( $lines );
 
@@ -563,5 +490,19 @@ class Updater {
 		$txt = preg_replace( "/\n{3,}/", "\n\n", $txt );
 		$txt = rtrim( $txt, "\n" ) . "\n";
 		return $txt;
+	}
+
+	/**
+	 * Return regex patterns for BEGIN/END markers.
+	 *
+	 * @since 1.0.0
+	 *
+	 * @return array { string $begin, string $end }
+	 */
+	protected function get_marker_regex_pair() {
+		return array(
+			'/^\s*#\s*BEGIN\s+' . preg_quote( $this->marker, '/' ) . '\s*$/m',
+			'/^\s*#\s*END\s+' . preg_quote( $this->marker, '/' ) . '\s*$/m',
+		);
 	}
 }

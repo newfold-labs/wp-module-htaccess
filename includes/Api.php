@@ -79,19 +79,30 @@ class Api {
 	 * @return void
 	 */
 	public static function register( Fragment $fragment, $apply = true ) {
+		$apply = (bool) $apply;
+
 		self::registry()->register( $fragment );
+
+		$reason_label = self::fragment_reason_label( $fragment );
 
 		$changed = false;
 		if ( self::$manager instanceof Manager ) {
 			$changed = (bool) self::$manager->persist_fragment_state( $fragment );
 		} else {
-			set_site_transient( 'nfd_htaccess_persist_needed', 1, 5 * MINUTE_IN_SECONDS );
+			set_site_transient( Options::get_option_name( 'persist_needed' ), 1, 5 * MINUTE_IN_SECONDS );
+			// Also ensure an apply is queued after boot.
+			$payload = array(
+				'at'     => time(),
+				'reason' => 'early:' . $reason_label,
+			);
+			set_site_transient( Options::get_option_name( 'needs_update' ), $payload, 5 * MINUTE_IN_SECONDS );
 		}
 
-		if ( true === $apply && $changed ) {
-			self::queue_apply( 'register:' . $fragment->id() );
+		if ( $apply && ( $changed || ! ( self::$manager instanceof Manager ) ) ) {
+			self::queue_apply( 'register:' . $reason_label );
 		}
 	}
+
 
 	/**
 	 * Unregister a fragment by ID and queue an apply.
@@ -103,19 +114,28 @@ class Api {
 	 * @return void
 	 */
 	public static function unregister( $id, $apply = true ) {
-		self::registry()->unregister( (string) $id );
+		$apply = (bool) $apply;
+		$id    = (string) $id;
+
+		self::registry()->unregister( $id );
 
 		$changed = false;
 		if ( self::$manager instanceof Manager ) {
-			$changed = (bool) self::$manager->remove_persisted_fragment( (string) $id );
+			$changed = (bool) self::$manager->remove_persisted_fragment( $id );
 		} else {
-			set_site_transient( 'nfd_htaccess_persist_needed', 1, 5 * MINUTE_IN_SECONDS );
+			set_site_transient( Options::get_option_name( 'persist_needed' ), 1, 5 * MINUTE_IN_SECONDS );
+			$payload = array(
+				'at'     => time(),
+				'reason' => 'early:' . $id,
+			);
+			set_site_transient( Options::get_option_name( 'needs_update' ), $payload, 5 * MINUTE_IN_SECONDS );
 		}
 
-		if ( true === $apply && $changed ) {
-			self::queue_apply( 'unregister:' . (string) $id );
+		if ( $apply && ( $changed || ! ( self::$manager instanceof Manager ) ) ) {
+			self::queue_apply( 'unregister:' . $id );
 		}
 	}
+
 
 	/**
 	 * Return enabled fragments sorted by priority for a given context.
@@ -148,6 +168,25 @@ class Api {
 			'at'     => time(),
 			'reason' => (string) $reason,
 		);
-		set_site_transient( 'nfd_htaccess_needs_update', $payload, 5 * MINUTE_IN_SECONDS );
+		set_site_transient( Options::get_option_name( 'needs_update' ), $payload, 5 * MINUTE_IN_SECONDS );
+	}
+
+	/**
+	 * Get a human-readable label for a fragment (for logging).
+	 *
+	 * @since 1.0.0
+	 *
+	 * @param mixed $fragment Fragment instance or ID.
+	 * @return string
+	 */
+	private static function fragment_reason_label( $fragment ) {
+		if ( $fragment instanceof Fragment && method_exists( $fragment, 'id' ) ) {
+			$id = (string) $fragment->id();
+			if ( '' !== $id ) {
+				return $id;
+			}
+		}
+		// Fallback to class name.
+		return is_object( $fragment ) ? get_class( $fragment ) : 'unknown';
 	}
 }

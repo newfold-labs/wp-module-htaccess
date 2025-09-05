@@ -42,25 +42,11 @@ class Manager {
 	protected $registry;
 
 	/**
-	 * Composer service.
-	 *
-	 * @var Composer
-	 */
-	protected $composer;
-
-	/**
 	 * Validator service.
 	 *
 	 * @var Validator
 	 */
 	protected $validator;
-
-	/**
-	 * Writer service.
-	 *
-	 * @var Writer
-	 */
-	protected $writer;
 
 	/**
 	 * Updater service (marker-based merge).
@@ -88,7 +74,7 @@ class Manager {
 	 *
 	 * @var string
 	 */
-	protected $state_option_key = 'nfd_htaccess_saved_state';
+	protected $state_option_key;
 
 	/**
 	 * Constructor.
@@ -112,12 +98,11 @@ class Manager {
 	 */
 	public function boot() {
 		// Instantiate internal services.
-		$this->registry  = new Registry();
-		$this->composer  = new Composer();
-		$this->validator = new Validator();
-		$this->writer    = new Writer();
-		$this->updater   = new Updater();
-		$this->cron      = new Cron();
+		$this->registry         = new Registry();
+		$this->validator        = new Validator();
+		$this->updater          = new Updater();
+		$this->cron             = new Cron();
+		$this->state_option_key = Options::get_option_name( 'saved_state' );
 
 		// Expose to static API for other modules to use without the container.
 		Api::set_registry( $this->registry );
@@ -139,7 +124,9 @@ class Manager {
 		// Single debounced write at safe boundaries (admin/cron/CLI only).
 		add_action( 'shutdown', array( $this, 'maybe_apply_on_shutdown' ), 2 );
 
-		WP_CLI::add_command( 'newfold htaccess', CLI::class );
+		if ( defined( 'WP_CLI' ) && WP_CLI && class_exists( '\WP_CLI' ) ) {
+			WP_CLI::add_command( 'newfold htaccess', CLI::class );
+		}
 
 		// Register cron scheduling and handler.
 		$this->cron->register();
@@ -159,22 +146,25 @@ class Manager {
 			'reason' => is_scalar( $reason ) ? (string) $reason : '',
 		);
 
-		set_site_transient( 'nfd_htaccess_needs_update', $payload, 5 * MINUTE_IN_SECONDS );
+		set_site_transient( Options::get_option_name( 'needs_update' ), $payload, 5 * MINUTE_IN_SECONDS );
 		$this->mark_dirty();
 	}
 
 	/**
-	 * Option change watcher: queue apply when relevant options change.
+	 * Queue an apply if certain options change.
+	 *
+	 * Currently watches 'permalink_structure', 'home', and 'siteurl'.
 	 *
 	 * @since 1.0.0
 	 *
-	 * @param string $option Option name.
+	 * @param string $option    Option name.
+	 * @param mixed  $old_value Old value.
+	 * @param mixed  $value     New value.
 	 * @return void
 	 */
-	public function maybe_queue_on_option( $option ) {
+	public function maybe_queue_on_option( $option, $old_value, $value ) {
 		if ( 'permalink_structure' === $option || 'home' === $option || 'siteurl' === $option ) {
 			$this->queue_apply( 'option:' . $option );
-			return;
 		}
 	}
 
@@ -217,11 +207,14 @@ class Manager {
 	 * @return void
 	 */
 	public function maybe_apply_on_shutdown() {
-		if ( ! $this->is_safe_context() || ! $this->dirty ) {
+		if ( ! ( $this->is_safe_context() && $this->dirty ) ) {
 			return;
 		}
-		delete_site_transient( 'nfd_htaccess_needs_update' );
+
+		// Clear the transient to avoid re-entrance in the same request.
+		delete_site_transient( Options::get_option_name( 'needs_update' ) );
 		$this->dirty = false;
+
 		$this->apply_canonical_state();
 	}
 
@@ -233,7 +226,15 @@ class Manager {
 	 * @return bool True if lock acquired, false if already locked.
 	 */
 	protected function acquire_lock() {
-		return (bool) set_transient( 'nfd_htaccess_write_lock', 1, 30 ); // 30s
+		$lock_key = Options::get_option_name( 'write_lock' );
+
+		if ( get_site_transient( $lock_key ) ) {
+			// Lock already held.
+			return false;
+		}
+
+		// Try to acquire lock for 30 seconds.
+		return set_site_transient( $lock_key, 1, 30 );
 	}
 
 	/**
@@ -244,32 +245,100 @@ class Manager {
 	 * @return void
 	 */
 	protected function release_lock() {
-		delete_transient( 'nfd_htaccess_write_lock' );
+		delete_site_transient( Options::get_option_name( 'write_lock' ) );
 	}
 
-	/**
-	 * On init, ensure the persisted NFD block equals the on-disk managed block.
-	 *
-	 * Fast path: compare checksum from saved state vs. current header.
-	 * If different or missing, queue a single apply for shutdown (single write).
-	 *
-	 * This method NEVER writes directly; it only queues an apply.
-	 *
-	 * @since 1.0.0
-	 *
-	 * @return void
-	 */
-	/**
-	 * On init, ensure the persisted NFD block equals the on-disk managed block.
-	 *
-	 * Fast path: compare checksums; if drift/missing OR legacy blocks exist,
-	 * re-apply persisted body into the "# BEGIN NFD Htaccess" block and migrate
-	 * legacy blocks in the same single write (no-op if identical and no legacy).
-	 *
-	 * @since 1.0.0
-	 *
-	 * @return void
-	 */
+		/**
+		 * Compose, validate, and merge ONLY the NFD-managed block into .htaccess.
+		 *
+		 * - Prefers saved state's composed body when available (durable/idempotent).
+		 * - If 'persist_needed' is set, composes from current fragments and persists
+		 *   the result back to saved state (then clears that transient).
+		 * - Collects legacy labels from BOTH current fragments and the saved body.
+		 * - Validates/remediates before writing; Updater no-ops if unchanged.
+		 *
+		 * @since 1.0.0
+		 *
+		 * @return void
+		 */
+	protected function apply_canonical_state() {
+		if ( ! $this->acquire_lock() ) {
+			return; // another request is writing
+		}
+
+		try {
+			// Context & metadata.
+			$context = Context::from_wp( array() );
+			$host    = $context->host();
+			$version = defined( 'NFD_MODULE_HTACCESS_VERSION' ) ? NFD_MODULE_HTACCESS_VERSION : '1.0.0';
+
+			// Single read of saved state + flags.
+			$saved           = $this->load_saved_state();
+			$have_saved_body = ( is_array( $saved ) && ! empty( $saved['body'] ) );
+			$force_compose   = (bool) get_site_transient( Options::get_option_name( 'persist_needed' ) );
+
+			// Enabled fragments (non-WP, exclusivity enforced).
+			$enabled = $this->enabled_non_wp_fragments( $context );
+
+			// Determine source of truth for $body; also prep labels list.
+			$fragments_for_migrator = $enabled;
+			if ( $have_saved_body && ! $force_compose ) {
+				// Reuse persisted body; still gather current fragments for labels.
+				$body = (string) $saved['body'];
+			} else {
+				// Compose afresh from enabled fragments (first boot or forced persist).
+				$body = $this->compose_body_only( $enabled, $context );
+			}
+
+			// Validate & remediate before writing; abort if still invalid.
+			if ( ! $this->validator->is_valid( $body, array() ) ) {
+				$body = $this->validator->remediate( $body );
+				if ( ! $this->validator->is_valid( $body, array() ) ) {
+					return; // avoid breaking .htaccess
+				}
+			}
+
+			// Legacy labels = from current fragments + from saved state (if present).
+			$labels_from_frags = $this->collect_legacy_marker_labels( $fragments_for_migrator, $context );
+			$labels_from_state = $this->collect_labels_from_saved_state( $have_saved_body ? $saved : array() );
+			$legacy_labels     = array_values( array_unique( array_merge( $labels_from_frags, $labels_from_state ) ) );
+
+			// If we had to compose because persistence was pending, persist to saved state now.
+			if ( $force_compose ) {
+				// Start from existing $saved to preserve any metadata keys.
+				$saved['blocks'] = array();
+
+				// Rebuild blocks map from the enabled fragments so saved state reflects reality.
+				foreach ( $enabled as $f ) {
+					if ( ! $f instanceof Fragment ) {
+						continue;
+					}
+					$id       = method_exists( $f, 'id' ) ? (string) $f->id() : get_class( $f );
+					$priority = (int) ( method_exists( $f, 'priority' ) ? $f->priority() : 0 );
+
+					$block = (string) $f->render( $context );
+					$block = str_replace( array( "\r\n", "\r" ), "\n", $block );
+					$block = preg_replace( '/^\s+|\s+$/u', '', $block );
+
+					$saved['blocks'][ $id ] = array(
+						'body'     => $block,
+						'priority' => $priority,
+					);
+				}
+
+				$this->save_state_full( $saved, $body, $host, $version );
+
+				// Clear the one-shot transient ONLY if we consumed it.
+				delete_site_transient( Options::get_option_name( 'persist_needed' ) );
+			}
+
+			// Merge into "# BEGIN NFD Htaccess" block; Updater no-ops if unchanged.
+			$this->updater->apply_managed_block( $body, $host, $version, $legacy_labels );
+		} finally {
+			$this->release_lock();
+		}
+	}
+
 	/**
 	 * On init, ensure the persisted NFD block equals the on-disk managed block.
 	 *
@@ -283,7 +352,7 @@ class Manager {
 	 */
 	public function reconcile_saved_block() {
 		// Avoid double writes in the same request.
-		if ( $this->dirty || get_site_transient( 'nfd_htaccess_needs_update' ) ) {
+		if ( $this->dirty || get_site_transient( Options::get_option_name( 'needs_update' ) ) ) {
 			return;
 		}
 
@@ -311,13 +380,8 @@ class Manager {
 			return;
 		}
 
-		// Compute current block body hash (your existing helper or Updater's).
-		$current_hash = '';
-		if ( method_exists( $this, 'compute_current_block_checksum' ) ) {
-			$current_hash = (string) $this->compute_current_block_checksum();
-		} elseif ( $this->updater instanceof Updater && method_exists( $this->updater, 'get_current_body_hash' ) ) {
-			$current_hash = (string) $this->updater->get_current_body_hash();
-		}
+		// Compute current block body hash.
+		$current_hash = (string) $this->updater->get_current_body_hash();
 
 		// Probe for legacy blocks present in the file.
 		$has_legacy = false;
@@ -373,131 +437,6 @@ class Manager {
 	}
 
 	/**
-	 * Determine if there are any enabled fragments in the current request.
-	 *
-	 * @since 1.0.0
-	 *
-	 * @param mixed $context Context snapshot.
-	 * @return bool
-	 */
-	protected function has_active_fragments( $context ) {
-		$list = $this->registry->enabled_fragments( $context );
-		return ( is_array( $list ) && ! empty( $list ) );
-	}
-
-	/**
-	 * Compose, validate, and merge ONLY the NFD-managed block into .htaccess.
-	 *
-	 * - Gathers enabled fragments from the registry (for this request).
-	 * - Skips any WordPress-related fragments (we don't manage core rules).
-	 * - Enforces exclusivity (first one wins for exclusive fragments).
-	 * - Composes a single NFD body (no top-level header).
-	 * - Validates and remediates common issues.
-	 * - Writes into "# BEGIN NFD Htaccess" markers with in-block header + checksum.
-	 * - No-ops automatically if checksum unchanged (handled in Updater).
-	 *
-	 * @since 1.0.0
-	 *
-	 * @return void
-	 */
-	protected function apply_canonical_state() {
-
-		if ( ! $this->acquire_lock() ) {
-			return; // another request is writing
-		}
-		try {
-			// 1) Build context and prep metadata.
-			$context = Context::from_wp( array() );
-			$host    = $context->host();
-			$version = '1.0.0';
-
-			// Prepare holders so they're always defined.
-			$fragments              = array(); // used when composing
-			$fragments_for_migrator = array(); // used only to collect legacy labels
-
-			// 2) Collect enabled fragments and drop WordPress-related ones.
-			// Prefer the persisted body if present; this lets rules accumulate across requests.
-			$saved = $this->load_saved_state();
-			if ( is_array( $saved ) && ! empty( $saved['body'] ) ) {
-				$body = (string) $saved['body'];
-
-				// We still need labels for migration; gather from currently enabled fragments.
-				$all       = $this->registry->enabled_fragments( $context );
-				$seen_excl = array();
-
-				foreach ( $all as $f ) {
-					$id = method_exists( $f, 'id' ) ? (string) $f->id() : '';
-
-					// Skip anything WordPress-y.
-					if ( '' !== $id && ( 'WordPress.core' === $id || false !== strpos( $id, 'WordPress' ) ) ) {
-						continue;
-					}
-
-					// Enforce "exclusive" _for label collection_ to avoid dup labels.
-					$is_exclusive = ( method_exists( $f, 'exclusive' ) && true === $f->exclusive() );
-					if ( $is_exclusive ) {
-						if ( '' !== $id && isset( $seen_excl[ $id ] ) ) {
-							continue;
-						}
-						if ( '' !== $id ) {
-							$seen_excl[ $id ] = true;
-						}
-					}
-
-					$fragments_for_migrator[] = $f;
-				}
-			} else {
-				// Fallback: compose from the currently enabled fragments (first boot, etc.).
-				$all       = $this->registry->enabled_fragments( $context );
-				$seen_excl = array();
-
-				foreach ( $all as $f ) {
-					$id = method_exists( $f, 'id' ) ? (string) $f->id() : '';
-
-					// Skip anything WordPress-y: we do NOT manage core rules here.
-					if ( '' !== $id && ( 'WordPress.core' === $id || false !== strpos( $id, 'WordPress' ) ) ) {
-						continue;
-					}
-
-					$is_exclusive = ( method_exists( $f, 'exclusive' ) && true === $f->exclusive() );
-					if ( $is_exclusive ) {
-						if ( '' !== $id && isset( $seen_excl[ $id ] ) ) {
-							continue; // drop duplicates of exclusive fragments
-						}
-						if ( '' !== $id ) {
-							$seen_excl[ $id ] = true;
-						}
-					}
-
-					$fragments[]              = $f;
-					$fragments_for_migrator[] = $f; // also use these for migration labels
-				}
-
-				$body = $this->compose_body_only( $fragments, $context );
-			}
-
-			// 4) Validate & remediate (lightweight: flags, handlers, BEGIN/END balance within body).
-			$is_valid = $this->validator->is_valid( $body, array() );
-			if ( ! $is_valid ) {
-				$body = $this->validator->remediate( $body );
-
-				// Re-check after remediation; if still invalid, abort to avoid breaking .htaccess.
-				if ( ! $this->validator->is_valid( $body, array() ) ) {
-					return;
-				}
-			}
-
-			// 5) Merge into the managed marker block with checksum; Updater no-ops if unchanged.
-			// IMPORTANT: collect labels from $fragments_for_migrator (always defined).
-			$legacy_labels = $this->collect_legacy_marker_labels( $fragments_for_migrator, $context );
-			$ok            = $this->updater->apply_managed_block( $body, $host, $version, $legacy_labels );
-		} finally {
-			$this->release_lock();
-		}
-	}
-
-
-	/**
 	 * Read current .htaccess contents (best-effort; no error silencing).
 	 *
 	 * @since 1.0.0
@@ -505,41 +444,13 @@ class Manager {
 	 * @return string
 	 */
 	protected function read_current_htaccess() {
-		$path = '';
-
-		if ( function_exists( 'get_home_path' ) ) {
-			$home = get_home_path();
-			if ( is_string( $home ) && '' !== $home ) {
-				$path = rtrim( $home, "/\\ \t\n\r\0\x0B" ) . DIRECTORY_SEPARATOR . '.htaccess';
-			}
-		}
-
-		if ( '' === $path && defined( 'ABSPATH' ) ) {
-			$path = rtrim( ABSPATH, "/\\ \t\n\r\0\x0B" ) . DIRECTORY_SEPARATOR . '.htaccess';
-		}
-
+		$path = $this->resolve_htaccess_path();
 		if ( '' === $path || ! is_readable( $path ) ) {
 			return '';
 		}
-
 		// phpcs:ignore WordPress.WP.AlternativeFunctions.file_get_contents_file_get_contents
 		$buf = file_get_contents( $path );
 		return is_string( $buf ) ? $buf : '';
-	}
-
-	/**
-	 * Extract the body checksum from a managed .htaccess header.
-	 *
-	 * @since 1.0.0
-	 *
-	 * @param string $text Full htaccess text.
-	 * @return string Empty if not found.
-	 */
-	protected function extract_checksum( $text ) {
-		if ( preg_match( '/^\s*#\s*STATE\s+sha256:\s*([0-9a-f]{64})\b/mi', (string) $text, $m ) ) {
-			return (string) $m[1];
-		}
-		return '';
 	}
 
 	/**
@@ -777,10 +688,8 @@ class Manager {
 	protected function save_state_full( $state, $body, $host, $version ) {
 		$payload = is_array( $state ) ? $state : array();
 
-		// If new body is empty but we already have a non-empty one, keep the existing body/checksum.
-			$payload['body']     = (string) $body;
-			$payload['checksum'] = hash( 'sha256', $this->normalize_lf( (string) $body ) );
-
+		$payload['body']      = (string) $body;
+		$payload['checksum']  = hash( 'sha256', $this->normalize_lf( (string) $body ) );
 		$payload['host']      = (string) $host;
 		$payload['version']   = (string) $version;
 		$payload['updatedAt'] = time();
@@ -837,8 +746,8 @@ class Manager {
 		// Try WordPress helpers first.
 		$this->ensure_wp_file_helpers();
 		$lines = array();
-		if ( function_exists( 'extract_from_markers' ) ) { // phpcs:ignore WordPress.NamingConventions.ValidFunctionName.FunctionNameInvalid
-			$lines = extract_from_markers( $path, 'NFD Htaccess' ); // phpcs:ignore WordPress.NamingConventions.ValidFunctionName.FunctionNameInvalid
+		if ( function_exists( 'extract_from_markers' ) ) {
+			$lines = extract_from_markers( $path, 'NFD Htaccess' );
 			if ( ! is_array( $lines ) ) {
 				$lines = array();
 			}
@@ -920,7 +829,7 @@ class Manager {
 	 * @return void
 	 */
 	protected function ensure_wp_file_helpers() {
-		if ( ! function_exists( 'insert_with_markers' ) || ! function_exists( 'extract_from_markers' ) ) { // phpcs:ignore
+		if ( ! function_exists( 'insert_with_markers' ) || ! function_exists( 'extract_from_markers' ) ) {
 			require_once ABSPATH . 'wp-admin/includes/misc.php';
 		}
 	}
@@ -942,21 +851,11 @@ class Manager {
 				continue;
 			}
 
-			$label = '';
-			if ( method_exists( $f, 'marker_label' ) ) {
-				$ml = (string) $f->marker_label();
-				if ( '' !== $ml ) {
-					$label = $ml;
-				}
-			}
-
-			// Fallback: sniff first "# BEGIN <label>" from rendered text (if any).
-			if ( '' === $label ) {
-				$rendered = (string) $f->render( $context );
-				$rendered = str_replace( array( "\r\n", "\r" ), "\n", $rendered );
-				if ( preg_match( '/^\s*#\s*BEGIN\s+(.+?)\s*$/m', $rendered, $m ) ) {
-					$label = trim( $m[1] );
-				}
+			$label    = '';
+			$rendered = (string) $f->render( $context );
+			$rendered = str_replace( array( "\r\n", "\r" ), "\n", $rendered );
+			if ( preg_match( '/^\s*#\s*BEGIN\s+(.+?)\s*$/m', $rendered, $m ) ) {
+				$label = trim( $m[1] );
 			}
 
 			if ( '' !== $label ) {
@@ -1003,5 +902,27 @@ class Manager {
 		}
 
 		return $filtered;
+	}
+
+	/**
+	 * Resolve the .htaccess path (best-effort).
+	 *
+	 * Prefers get_home_path() if available, otherwise falls back to ABSPATH.
+	 *
+	 * @since 1.0.0
+	 *
+	 * @return string Resolved path, or '' if cannot determine.
+	 */
+	protected function resolve_htaccess_path() {
+		if ( function_exists( 'get_home_path' ) ) {
+			$home = get_home_path();
+			if ( is_string( $home ) && '' !== $home ) {
+				return rtrim( $home, "/\\ \t\n\r\0\x0B" ) . DIRECTORY_SEPARATOR . '.htaccess';
+			}
+		}
+		if ( defined( 'ABSPATH' ) ) {
+			return rtrim( ABSPATH, "/\\ \t\n\r\0\x0B" ) . DIRECTORY_SEPARATOR . '.htaccess';
+		}
+		return '';
 	}
 }
