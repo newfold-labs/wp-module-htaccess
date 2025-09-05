@@ -13,6 +13,16 @@ use WP_CLI;
 /**
  * Manages all functionality for the Htaccess module.
  *
+ * Responsibilities:
+ * - Tracks and composes NFD-managed fragments (in-memory each request).
+ * - Persists fragment blocks and the composed body to avoid recomposition churn.
+ * - Schedules a single, debounced write at shutdown (safe contexts only).
+ * - Reconciles saved state vs. on-disk block and queues a single apply if drift.
+ *
+ * Notes:
+ * - Writes only occur once at shutdown and only if content changes (Updater no-ops).
+ * - Never writes a header-only/blank managed block.
+ *
  * @since 1.0.0
  */
 class Manager {
@@ -60,11 +70,25 @@ class Manager {
 	protected $updater;
 
 	/**
+	 * Cron service (scheduling and handler).
+	 *
+	 * @var Cron
+	 */
+	protected $cron;
+
+	/**
 	 * Whether or not an apply is queued (dirty state).
 	 *
 	 * @var bool
 	 */
 	protected $dirty = false;
+
+	/**
+	 * Persisted state option key.
+	 *
+	 * @var string
+	 */
+	protected $state_option_key = 'nfd_htaccess_saved_state';
 
 	/**
 	 * Constructor.
@@ -93,10 +117,15 @@ class Manager {
 		$this->validator = new Validator();
 		$this->writer    = new Writer();
 		$this->updater   = new Updater();
+		$this->cron      = new Cron();
 
 		// Expose to static API for other modules to use without the container.
 		Api::set_registry( $this->registry );
 		Api::set_manager( $this );
+
+		// Reconcile persisted block vs. disk at init (queues if drift found).
+		// Runs late so that any runtime registrations on init have happened.
+		add_action( 'admin_init', array( $this, 'reconcile_saved_block' ), 1 );
 
 		// Queue on common events that affect rewrite rules or fragments.
 		add_action( 'switch_theme', array( $this, 'queue_apply' ) );
@@ -108,9 +137,12 @@ class Manager {
 		add_action( 'updated_option', array( $this, 'maybe_queue_on_option' ), 10, 3 );
 
 		// Single debounced write at safe boundaries (admin/cron/CLI only).
-		add_action( 'shutdown', array( $this, 'maybe_apply_on_shutdown' ), 0 );
+		add_action( 'shutdown', array( $this, 'maybe_apply_on_shutdown' ), 2 );
 
 		WP_CLI::add_command( 'newfold htaccess', CLI::class );
+
+		// Register cron scheduling and handler.
+		$this->cron->register();
 	}
 
 	/**
@@ -136,7 +168,7 @@ class Manager {
 	 *
 	 * @since 1.0.0
 	 *
-	 * @param string $option    Option name.
+	 * @param string $option Option name.
 	 * @return void
 	 */
 	public function maybe_queue_on_option( $option ) {
@@ -148,6 +180,8 @@ class Manager {
 
 	/**
 	 * Is this a safe context to apply at shutdown?
+	 *
+	 * @since 1.0.0
 	 *
 	 * @return bool
 	 */
@@ -194,6 +228,8 @@ class Manager {
 	/**
 	 * Acquire a write lock to prevent concurrent writes.
 	 *
+	 * @since 1.0.0
+	 *
 	 * @return bool True if lock acquired, false if already locked.
 	 */
 	protected function acquire_lock() {
@@ -203,17 +239,156 @@ class Manager {
 	/**
 	 * Release the write lock.
 	 *
+	 * @since 1.0.0
+	 *
 	 * @return void
 	 */
 	protected function release_lock() {
 		delete_transient( 'nfd_htaccess_write_lock' );
 	}
 
+	/**
+	 * On init, ensure the persisted NFD block equals the on-disk managed block.
+	 *
+	 * Fast path: compare checksum from saved state vs. current header.
+	 * If different or missing, queue a single apply for shutdown (single write).
+	 *
+	 * This method NEVER writes directly; it only queues an apply.
+	 *
+	 * @since 1.0.0
+	 *
+	 * @return void
+	 */
+	/**
+	 * On init, ensure the persisted NFD block equals the on-disk managed block.
+	 *
+	 * Fast path: compare checksums; if drift/missing OR legacy blocks exist,
+	 * re-apply persisted body into the "# BEGIN NFD Htaccess" block and migrate
+	 * legacy blocks in the same single write (no-op if identical and no legacy).
+	 *
+	 * @since 1.0.0
+	 *
+	 * @return void
+	 */
+	/**
+	 * On init, ensure the persisted NFD block equals the on-disk managed block.
+	 *
+	 * Fast path: compare checksums; if drift/missing OR legacy blocks exist,
+	 * re-apply persisted body into the "# BEGIN NFD Htaccess" block and migrate
+	 * legacy blocks in the same single write (no-op if identical and no legacy).
+	 *
+	 * @since 1.0.0
+	 *
+	 * @return void
+	 */
+	public function reconcile_saved_block() {
+		// Avoid double writes in the same request.
+		if ( $this->dirty || get_site_transient( 'nfd_htaccess_needs_update' ) ) {
+			return;
+		}
+
+		$saved = $this->load_saved_state();
+		if ( empty( $saved['body'] ) || empty( $saved['checksum'] ) ) {
+			return;
+		}
+
+		$current = $this->read_current_htaccess();
+		$context = Context::from_wp( array() );
+
+		// --- NEW: Build legacy labels from BOTH current fragments and persisted state.
+		$labels_from_frags = $this->collect_legacy_marker_labels( $this->enabled_non_wp_fragments( $context ), $context );
+		$labels_from_state = $this->collect_labels_from_saved_state( $saved );
+		$legacy_labels     = array_values( array_unique( array_merge( $labels_from_frags, $labels_from_state ) ) );
+
+		if ( '' === $current ) {
+			// Missing/unreadable: write saved state and migrate in one go.
+			$this->updater->apply_managed_block(
+				(string) $saved['body'],
+				(string) $saved['host'],
+				(string) $saved['version'],
+				$legacy_labels
+			);
+			return;
+		}
+
+		// Compute current block body hash (your existing helper or Updater's).
+		$current_hash = '';
+		if ( method_exists( $this, 'compute_current_block_checksum' ) ) {
+			$current_hash = (string) $this->compute_current_block_checksum();
+		} elseif ( $this->updater instanceof Updater && method_exists( $this->updater, 'get_current_body_hash' ) ) {
+			$current_hash = (string) $this->updater->get_current_body_hash();
+		}
+
+		// Probe for legacy blocks present in the file.
+		$has_legacy = false;
+		if ( ! empty( $legacy_labels ) ) {
+			$migrator     = new Migrator();
+			$normalized   = str_replace( array( "\r\n", "\r" ), "\n", (string) $current );
+			$probe_result = $migrator->remove_legacy_blocks( $normalized, $legacy_labels );
+			$has_legacy   = ( is_array( $probe_result ) && ! empty( $probe_result['removed'] ) );
+		}
+
+		// Rewrite if checksum differs OR legacy blocks are present.
+		if ( $current_hash !== (string) $saved['checksum'] || $has_legacy ) {
+			$this->updater->apply_managed_block(
+				(string) $saved['body'],
+				(string) $saved['host'],
+				(string) $saved['version'],
+				$legacy_labels
+			);
+		}
+	}
+
+	/**
+	 * Collect legacy marker labels by parsing the saved state's body text.
+	 *
+	 * Looks for lines like "# BEGIN Something ...", "# END Something ...".
+	 *
+	 * @since 1.0.0
+	 *
+	 * @param array $saved_state Result of load_saved_state().
+	 * @return string[] Unique marker labels found.
+	 */
+	protected function collect_labels_from_saved_state( $saved_state ) {
+		$labels = array();
+
+		if ( ! is_array( $saved_state ) || empty( $saved_state['body'] ) || ! is_string( $saved_state['body'] ) ) {
+			return $labels;
+		}
+
+		$body  = (string) $saved_state['body'];
+		$lines = preg_split( '/\r\n|\r|\n/', $body );
+
+		foreach ( $lines as $line ) {
+			// Match "# BEGIN Some Label" or "# END Some Label"
+			if ( preg_match( '/^\s*#\s*(?:BEGIN|END)\s+(.+)$/i', $line, $m ) ) {
+				$label = trim( $m[1] );
+				if ( '' !== $label ) {
+					$labels[ $label ] = true;
+				}
+			}
+		}
+
+		return array_keys( $labels );
+	}
+
+	/**
+	 * Determine if there are any enabled fragments in the current request.
+	 *
+	 * @since 1.0.0
+	 *
+	 * @param mixed $context Context snapshot.
+	 * @return bool
+	 */
+	protected function has_active_fragments( $context ) {
+		$list = $this->registry->enabled_fragments( $context );
+		return ( is_array( $list ) && ! empty( $list ) );
+	}
 
 	/**
 	 * Compose, validate, and merge ONLY the NFD-managed block into .htaccess.
 	 *
-	 * - Gathers enabled fragments from the registry.
+	 * - Gathers enabled fragments from the registry (for this request).
 	 * - Skips any WordPress-related fragments (we don't manage core rules).
 	 * - Enforces exclusivity (first one wins for exclusive fragments).
 	 * - Composes a single NFD body (no top-level header).
@@ -226,84 +401,96 @@ class Manager {
 	 * @return void
 	 */
 	protected function apply_canonical_state() {
-		// Optional debug helper.
-		$log = function ( $msg ) {
-			if ( defined( 'WP_DEBUG' ) && WP_DEBUG ) {
-				// phpcs:ignore WordPress.PHP.DevelopmentFunctions.error_log_error_log
-				error_log( '[htaccess-manager] ' . $msg );
-			}
-		};
 
 		if ( ! $this->acquire_lock() ) {
 			return; // another request is writing
 		}
 		try {
-				// 1) Build context and prep metadata.
+			// 1) Build context and prep metadata.
 			$context = Context::from_wp( array() );
 			$host    = $context->host();
 			$version = '1.0.0';
 
+			// Prepare holders so they're always defined.
+			$fragments              = array(); // used when composing
+			$fragments_for_migrator = array(); // used only to collect legacy labels
+
 			// 2) Collect enabled fragments and drop WordPress-related ones.
-			$all       = $this->registry->enabled_fragments( $context );
-			$fragments = array();
-			$seen_excl = array(); // exclusivity guard by fragment id
+			// Prefer the persisted body if present; this lets rules accumulate across requests.
+			$saved = $this->load_saved_state();
+			if ( is_array( $saved ) && ! empty( $saved['body'] ) ) {
+				$body = (string) $saved['body'];
 
-			foreach ( $all as $f ) {
-				$id = method_exists( $f, 'id' ) ? (string) $f->id() : '';
+				// We still need labels for migration; gather from currently enabled fragments.
+				$all       = $this->registry->enabled_fragments( $context );
+				$seen_excl = array();
 
-				// Skip anything WordPress-y: we do NOT manage core rules here.
-				if ( '' !== $id && ( 'WordPress.core' === $id || false !== strpos( $id, 'WordPress' ) ) ) {
-					continue;
+				foreach ( $all as $f ) {
+					$id = method_exists( $f, 'id' ) ? (string) $f->id() : '';
+
+					// Skip anything WordPress-y.
+					if ( '' !== $id && ( 'WordPress.core' === $id || false !== strpos( $id, 'WordPress' ) ) ) {
+						continue;
+					}
+
+					// Enforce "exclusive" _for label collection_ to avoid dup labels.
+					$is_exclusive = ( method_exists( $f, 'exclusive' ) && true === $f->exclusive() );
+					if ( $is_exclusive ) {
+						if ( '' !== $id && isset( $seen_excl[ $id ] ) ) {
+							continue;
+						}
+						if ( '' !== $id ) {
+							$seen_excl[ $id ] = true;
+						}
+					}
+
+					$fragments_for_migrator[] = $f;
+				}
+			} else {
+				// Fallback: compose from the currently enabled fragments (first boot, etc.).
+				$all       = $this->registry->enabled_fragments( $context );
+				$seen_excl = array();
+
+				foreach ( $all as $f ) {
+					$id = method_exists( $f, 'id' ) ? (string) $f->id() : '';
+
+					// Skip anything WordPress-y: we do NOT manage core rules here.
+					if ( '' !== $id && ( 'WordPress.core' === $id || false !== strpos( $id, 'WordPress' ) ) ) {
+						continue;
+					}
+
+					$is_exclusive = ( method_exists( $f, 'exclusive' ) && true === $f->exclusive() );
+					if ( $is_exclusive ) {
+						if ( '' !== $id && isset( $seen_excl[ $id ] ) ) {
+							continue; // drop duplicates of exclusive fragments
+						}
+						if ( '' !== $id ) {
+							$seen_excl[ $id ] = true;
+						}
+					}
+
+					$fragments[]              = $f;
+					$fragments_for_migrator[] = $f; // also use these for migration labels
 				}
 
-				// Enforce "exclusive" fragments: keep the first seen.
-				$is_exclusive = ( method_exists( $f, 'exclusive' ) && true === $f->exclusive() );
-				if ( $is_exclusive ) {
-					if ( '' !== $id && isset( $seen_excl[ $id ] ) ) {
-						continue; // drop duplicates of exclusive fragments
-					}
-					if ( '' !== $id ) {
-						$seen_excl[ $id ] = true;
-					}
-				}
-
-				$fragments[] = $f;
+				$body = $this->compose_body_only( $fragments, $context );
 			}
 
-			$log(
-				'enabled NFD fragments: ' . count( $fragments ) . ( count( $fragments ) ? ' [' . implode(
-					',',
-					array_map(
-						function ( $f ) {
-							return method_exists( $f, 'id' ) ? $f->id() : get_class( $f );
-						},
-						$fragments
-					)
-				) . ']' : '' )
-			);
-
-			// 3) Compose body only (no global header; Updater adds an in-block header).
-			$body = $this->compose_body_only( $fragments, $context );
-
 			// 4) Validate & remediate (lightweight: flags, handlers, BEGIN/END balance within body).
-			// We pass an empty exclusives list here because exclusivity was already enforced above.
 			$is_valid = $this->validator->is_valid( $body, array() );
-
 			if ( ! $is_valid ) {
-				$log( 'validator errors: ' . implode( ' | ', $this->validator->get_errors() ) );
 				$body = $this->validator->remediate( $body );
 
 				// Re-check after remediation; if still invalid, abort to avoid breaking .htaccess.
 				if ( ! $this->validator->is_valid( $body, array() ) ) {
-					$log( 'validation failed after remediation; skipping write' );
 					return;
 				}
 			}
 
 			// 5) Merge into the managed marker block with checksum; Updater no-ops if unchanged.
-			$ok = $this->updater->apply_managed_block( $body, $host, $version );
-
-			$log( 'merge result: ' . ( $ok ? 'ok' : 'fail' ) );
+			// IMPORTANT: collect labels from $fragments_for_migrator (always defined).
+			$legacy_labels = $this->collect_legacy_marker_labels( $fragments_for_migrator, $context );
+			$ok            = $this->updater->apply_managed_block( $body, $host, $version, $legacy_labels );
 		} finally {
 			$this->release_lock();
 		}
@@ -311,31 +498,39 @@ class Manager {
 
 
 	/**
-	 * Read current .htaccess contents.
+	 * Read current .htaccess contents (best-effort; no error silencing).
+	 *
+	 * @since 1.0.0
 	 *
 	 * @return string
 	 */
 	protected function read_current_htaccess() {
+		$path = '';
+
 		if ( function_exists( 'get_home_path' ) ) {
 			$home = get_home_path();
 			if ( is_string( $home ) && '' !== $home ) {
 				$path = rtrim( $home, "/\\ \t\n\r\0\x0B" ) . DIRECTORY_SEPARATOR . '.htaccess';
-				// phpcs:ignore WordPress.WP.AlternativeFunctions.file_get_contents_file_get_contents
-				$buf = @file_get_contents( $path );
-				return is_string( $buf ) ? $buf : '';
 			}
 		}
-		if ( defined( 'ABSPATH' ) ) {
+
+		if ( '' === $path && defined( 'ABSPATH' ) ) {
 			$path = rtrim( ABSPATH, "/\\ \t\n\r\0\x0B" ) . DIRECTORY_SEPARATOR . '.htaccess';
-			// phpcs:ignore WordPress.WP.AlternativeFunctions.file_get_contents_file_get_contents
-			$buf = @file_get_contents( $path );
-			return is_string( $buf ) ? $buf : '';
 		}
-		return '';
+
+		if ( '' === $path || ! is_readable( $path ) ) {
+			return '';
+		}
+
+		// phpcs:ignore WordPress.WP.AlternativeFunctions.file_get_contents_file_get_contents
+		$buf = file_get_contents( $path );
+		return is_string( $buf ) ? $buf : '';
 	}
 
 	/**
 	 * Extract the body checksum from a managed .htaccess header.
+	 *
+	 * @since 1.0.0
 	 *
 	 * @param string $text Full htaccess text.
 	 * @return string Empty if not found.
@@ -362,6 +557,8 @@ class Manager {
 	 * Compose NFD fragments into a single body without our header,
 	 * separating fragments by a blank line.
 	 *
+	 * @since 1.0.0
+	 *
 	 * @param Fragment[] $fragments Fragments to render.
 	 * @param mixed      $context   Context.
 	 * @return string
@@ -387,16 +584,424 @@ class Manager {
 		return $body;
 	}
 
+	/**
+	 * Persist (or update) a single fragment's rendered block into saved state.
+	 *
+	 * Renders the fragment in the current context, stores its body and priority
+	 * keyed by fragment ID, then recomposes/saves the full persisted body + checksum.
+	 * Idempotent: returns false if nothing effectively changed.
+	 *
+	 * @since 1.0.0
+	 *
+	 * @param Fragment $fragment Fragment instance.
+	 * @return bool True if persisted composed body changed; false if no-op.
+	 */
+	public function persist_fragment_state( Fragment $fragment ) {
+		if ( ! $fragment instanceof Fragment ) {
+			return false;
+		}
+
+		$context = class_exists( __NAMESPACE__ . '\Context' ) ? Context::from_wp( array() ) : null;
+		$host    = $context ? $context->host() : '';
+		$version = '1.0.0';
+
+		// Render this fragment alone (normalized, trimmed).
+		$block = (string) $fragment->render( $context );
+		$block = str_replace( array( "\r\n", "\r" ), "\n", $block );
+		$block = preg_replace( '/^\s+|\s+$/u', '', $block );
+
+		$id       = method_exists( $fragment, 'id' ) ? (string) $fragment->id() : get_class( $fragment );
+		$priority = (int) ( method_exists( $fragment, 'priority' ) ? $fragment->priority() : 0 );
+
+		$state = $this->load_saved_state();
+		if ( empty( $state['blocks'] ) || ! is_array( $state['blocks'] ) ) {
+			$state['blocks'] = array();
+		}
+
+		$prev = isset( $state['blocks'][ $id ] ) ? $state['blocks'][ $id ] : null;
+
+		// If new render is empty but we already have a non-empty stored block,
+		// DO NOT overwrite the stored body. Update only the priority metadata.
+		$next_body = (string) $block;
+
+		// If the stored block is identical (body + priority), it's a no-op.
+		if ( is_array( $prev )
+			&& array_key_exists( 'body', $prev )
+			&& array_key_exists( 'priority', $prev )
+			&& (string) $prev['body'] === $next_body
+			&& (int) $prev['priority'] === $priority
+		) {
+			return false;
+		}
+
+		// Update this fragment's entry.
+		$state['blocks'][ $id ] = array(
+			'body'     => $next_body,
+			'priority' => $priority,
+		);
+
+		$old_body = isset( $state['body'] ) ? (string) $state['body'] : '';
+		$new_body = $this->compose_from_saved_blocks( $state );
+
+		// If recomposed body is unchanged, no persistence or apply needed.
+		if ( (string) $new_body === (string) $old_body ) {
+			return false;
+		}
+
+		// Validate/remediate non-empty bodies before saving.
+		if ( '' !== $new_body && ! $this->validator->is_valid( $new_body, array() ) ) {
+			$new_body = $this->validator->remediate( $new_body );
+			if ( ! $this->validator->is_valid( $new_body, array() ) ) {
+				return false;
+			}
+		}
+
+		$this->save_state_full( $state, $new_body, $host, $version );
+		return true;
+	}
 
 	/**
-	 * Lightweight debug log (prefix module).
+	 * Remove a fragment's block from saved state by ID and recompute persisted body.
 	 *
-	 * @param string $msg Message.
+	 * Idempotent: returns false if nothing effectively changed.
+	 *
+	 * @since 1.0.0
+	 *
+	 * @param string $id Fragment ID.
+	 * @return bool True if persisted composed body changed; false if no-op.
+	 */
+	public function remove_persisted_fragment( $id ) {
+		$state = $this->load_saved_state();
+
+		if ( empty( $state['blocks'] ) || ! is_array( $state['blocks'] ) ) {
+			return false;
+		}
+
+		$id = (string) $id;
+		if ( ! isset( $state['blocks'][ $id ] ) ) {
+			return false;
+		}
+
+		unset( $state['blocks'][ $id ] );
+
+		$context = class_exists( __NAMESPACE__ . '\Context' ) ? Context::from_wp( array() ) : null;
+		$host    = $context ? $context->host() : '';
+		$version = '1.0.0';
+
+		$old_body = isset( $state['body'] ) ? (string) $state['body'] : '';
+		$new_body = $this->compose_from_saved_blocks( $state );
+
+		if ( (string) $new_body === (string) $old_body ) {
+			return false;
+		}
+
+		if ( '' !== $new_body && ! $this->validator->is_valid( $new_body, array() ) ) {
+			$new_body = $this->validator->remediate( $new_body );
+			if ( ! $this->validator->is_valid( $new_body, array() ) ) {
+				return false;
+			}
+		}
+
+		$this->save_state_full( $state, $new_body, $host, $version );
+		return true;
+	}
+
+	/**
+	 * Compose NFD body from saved state blocks sorted by priority then ID.
+	 *
+	 * @since 1.0.0
+	 *
+	 * @param array $state Saved state containing 'blocks'.
+	 * @return string Composed body (no trailing newline).
+	 */
+	protected function compose_from_saved_blocks( $state ) {
+		$blocks = array();
+
+		if ( ! empty( $state['blocks'] ) && is_array( $state['blocks'] ) ) {
+			// Sort by priority asc, then ID asc for stability.
+			$items = $state['blocks'];
+			uksort(
+				$items,
+				function ( $a, $b ) use ( $items ) {
+					$pa = isset( $items[ $a ]['priority'] ) ? (int) $items[ $a ]['priority'] : 0;
+					$pb = isset( $items[ $b ]['priority'] ) ? (int) $items[ $b ]['priority'] : 0;
+					if ( $pa === $pb ) {
+						return strcmp( (string) $a, (string) $b );
+					}
+					return ( $pa < $pb ) ? -1 : 1;
+				}
+			);
+
+			foreach ( $items as $meta ) {
+				$body = isset( $meta['body'] ) ? (string) $meta['body'] : '';
+				$body = str_replace( array( "\r\n", "\r" ), "\n", $body );
+				$body = preg_replace( '/^\s+|\s+$/u', '', $body );
+				if ( '' !== $body ) {
+					$blocks[] = $body;
+				}
+			}
+		}
+
+		$out = implode( "\n\n", $blocks );
+		return rtrim( $out, "\n" );
+	}
+
+	/**
+	 * Load persisted NFD state (accumulated fragment blocks and composed body).
+	 *
+	 * @since 1.0.0
+	 *
+	 * @return array
+	 */
+	protected function load_saved_state() {
+		$payload = is_multisite() && function_exists( 'get_site_option' )
+			? get_site_option( $this->state_option_key, array() )
+			: get_option( $this->state_option_key, array() );
+
+		return is_array( $payload ) ? $payload : array();
+	}
+
+	/**
+	 * Save full persisted state (blocks map + composed body + checksum + metadata).
+	 *
+	 * Never clobbers a non-empty existing body with an empty one.
+	 *
+	 * @since 1.0.0
+	 *
+	 * @param array  $state   State with 'blocks' map.
+	 * @param string $body    Composed body (no trailing newline).
+	 * @param string $host    Host label.
+	 * @param string $version Version string.
 	 * @return void
 	 */
-	protected function log( $msg ) {
-		if ( defined( 'WP_DEBUG' ) && WP_DEBUG ) {
-			error_log( '[htaccess-manager] ' . $msg ); // phpcs:ignore
+	protected function save_state_full( $state, $body, $host, $version ) {
+		$payload = is_array( $state ) ? $state : array();
+
+		// If new body is empty but we already have a non-empty one, keep the existing body/checksum.
+			$payload['body']     = (string) $body;
+			$payload['checksum'] = hash( 'sha256', $this->normalize_lf( (string) $body ) );
+
+		$payload['host']      = (string) $host;
+		$payload['version']   = (string) $version;
+		$payload['updatedAt'] = time();
+
+		if ( is_multisite() && function_exists( 'update_site_option' ) ) {
+			update_site_option( $this->state_option_key, $payload );
+		} else {
+			update_option( $this->state_option_key, $payload );
 		}
+	}
+
+	/**
+	 * Normalize to LF without trailing newlines (for stable checksums).
+	 *
+	 * @since 1.0.0
+	 *
+	 * @param string $text Input.
+	 * @return string
+	 */
+	protected function normalize_lf( $text ) {
+		$text = str_replace( array( "\r\n", "\r" ), "\n", (string) $text );
+		return rtrim( $text, "\n" );
+	}
+
+	/**
+	 * Compute the sha256 checksum of the BODY currently inside the NFD managed block,
+	 * ignoring the in-block header. Returns '' ONLY if the block is missing/unreadable.
+	 *
+	 * Robust behavior:
+	 * - Prefer extract_from_markers(); if unavailable or empty, fall back to manual parse.
+	 * - Anchor on "# STATE sha256:" to find the body start; otherwise skip leading "#" lines
+	 *   and a single blank separator.
+	 *
+	 * @since 1.0.0
+	 *
+	 * @return string sha256 checksum of body, or '' if no block found.
+	 */
+	protected function compute_current_block_checksum() {
+		// Resolve .htaccess path.
+		$path = '';
+		if ( function_exists( 'get_home_path' ) ) {
+			$home = get_home_path();
+			if ( is_string( $home ) && '' !== $home ) {
+				$path = rtrim( $home, "/\\ \t\n\r\0\x0B" ) . DIRECTORY_SEPARATOR . '.htaccess';
+			}
+		}
+		if ( '' === $path && defined( 'ABSPATH' ) ) {
+			$path = rtrim( ABSPATH, "/\\ \t\n\r\0\x0B" ) . DIRECTORY_SEPARATOR . '.htaccess';
+		}
+		if ( '' === $path || ! is_readable( $path ) ) {
+			return '';
+		}
+
+		// Try WordPress helpers first.
+		$this->ensure_wp_file_helpers();
+		$lines = array();
+		if ( function_exists( 'extract_from_markers' ) ) { // phpcs:ignore WordPress.NamingConventions.ValidFunctionName.FunctionNameInvalid
+			$lines = extract_from_markers( $path, 'NFD Htaccess' ); // phpcs:ignore WordPress.NamingConventions.ValidFunctionName.FunctionNameInvalid
+			if ( ! is_array( $lines ) ) {
+				$lines = array();
+			}
+		}
+
+		// Fallback: manual parse if helpers failed to find the block.
+		if ( empty( $lines ) ) {
+			// phpcs:ignore WordPress.WP.AlternativeFunctions.file_get_contents_file_get_contents
+			$buf = file_get_contents( $path );
+			if ( ! is_string( $buf ) || '' === $buf ) {
+				return '';
+			}
+			$buf = str_replace( array( "\r\n", "\r" ), "\n", $buf );
+
+			$begin_re = '/^\s*#\s*BEGIN\s+NFD Htaccess\s*$/mi';
+			$end_re   = '/^\s*#\s*END\s+NFD Htaccess\s*$/mi';
+
+			if ( ! preg_match( $begin_re, $buf, $mb, PREG_OFFSET_CAPTURE ) ) {
+				return '';
+			}
+			if ( ! preg_match( $end_re, $buf, $me, PREG_OFFSET_CAPTURE ) ) {
+				return '';
+			}
+			$begin_pos = $mb[0][1] + strlen( $mb[0][0] );
+			$end_pos   = $me[0][1];
+
+			if ( $end_pos <= $begin_pos ) {
+				return '';
+			}
+
+			$inner = substr( $buf, $begin_pos, $end_pos - $begin_pos );
+			$inner = ltrim( $inner, "\n" );
+			$lines = explode( "\n", $inner );
+		}
+
+		// If still nothing, no block present.
+		if ( empty( $lines ) ) {
+			return '';
+		}
+
+		// Find "# STATE sha256:" header line. If missing, fall back to skipping header comments.
+		$state_index = -1;
+		foreach ( $lines as $i => $line ) {
+			if ( preg_match( '/^\s*#\s*STATE\s+sha256:\s*[0-9a-f]{64}\b/i', $line ) ) {
+				$state_index = $i;
+				break;
+			}
+		}
+
+		$start = ( -1 === $state_index ) ? 0 : $state_index + 1;
+		if ( -1 === $state_index ) {
+			// Skip leading comment header lines if no STATE line.
+			$max = count( $lines );
+			while ( $start < $max && preg_match( '/^\s*#/', $lines[ $start ] ) ) {
+				++$start;
+			}
+		}
+		// Skip a single blank separator if present.
+		if ( $start < count( $lines ) && '' === trim( $lines[ $start ] ) ) {
+			++$start;
+		}
+
+		$body_lines = array_slice( $lines, $start );
+		$body       = implode( "\n", $body_lines );
+		$body       = str_replace( array( "\r\n", "\r" ), "\n", $body );
+		$body       = rtrim( $body, "\n" );
+
+		// Return hash of the body (empty body => e3b0c442...).
+		return hash( 'sha256', $body );
+	}
+
+
+
+	/**
+	 * Ensure WP marker helpers are available.
+	 *
+	 * @since 1.0.0
+	 *
+	 * @return void
+	 */
+	protected function ensure_wp_file_helpers() {
+		if ( ! function_exists( 'insert_with_markers' ) || ! function_exists( 'extract_from_markers' ) ) { // phpcs:ignore
+			require_once ABSPATH . 'wp-admin/includes/misc.php';
+		}
+	}
+
+	/**
+	 * Collect legacy marker labels from fragments (for migrator).
+	 *
+	 * @since 1.0.0
+	 *
+	 * @param Fragment[] $fragments Enabled fragments.
+	 * @param mixed      $context   Render context.
+	 * @return string[]
+	 */
+	protected function collect_legacy_marker_labels( $fragments, $context ) {
+		$labels = array();
+
+		foreach ( (array) $fragments as $f ) {
+			if ( ! $f instanceof Fragment ) {
+				continue;
+			}
+
+			$label = '';
+			if ( method_exists( $f, 'marker_label' ) ) {
+				$ml = (string) $f->marker_label();
+				if ( '' !== $ml ) {
+					$label = $ml;
+				}
+			}
+
+			// Fallback: sniff first "# BEGIN <label>" from rendered text (if any).
+			if ( '' === $label ) {
+				$rendered = (string) $f->render( $context );
+				$rendered = str_replace( array( "\r\n", "\r" ), "\n", $rendered );
+				if ( preg_match( '/^\s*#\s*BEGIN\s+(.+?)\s*$/m', $rendered, $m ) ) {
+					$label = trim( $m[1] );
+				}
+			}
+
+			if ( '' !== $label ) {
+				$labels[ $label ] = true; // de-dupe
+			}
+		}
+
+		return array_keys( $labels );
+	}
+
+	/**
+	 * Return enabled fragments excluding WordPress/core fragments.
+	 *
+	 * @since 1.0.0
+	 *
+	 * @param mixed $context Context.
+	 * @return Fragment[]
+	 */
+	protected function enabled_non_wp_fragments( $context ) {
+		$all       = $this->registry->enabled_fragments( $context );
+		$filtered  = array();
+		$seen_excl = array();
+
+		foreach ( $all as $f ) {
+			$id = method_exists( $f, 'id' ) ? (string) $f->id() : '';
+
+			// Skip anything WordPress-y: we do NOT manage core rules here.
+			if ( '' !== $id && ( 'WordPress.core' === $id || false !== strpos( $id, 'WordPress' ) ) ) {
+				continue;
+			}
+
+			// Respect exclusivity (first one wins) to avoid duplicate labels.
+			$is_exclusive = ( method_exists( $f, 'exclusive' ) && true === $f->exclusive() );
+			if ( $is_exclusive ) {
+				if ( '' !== $id && isset( $seen_excl[ $id ] ) ) {
+					continue;
+				}
+				if ( '' !== $id ) {
+					$seen_excl[ $id ] = true;
+				}
+			}
+
+			$filtered[] = $f;
+		}
+
+		return $filtered;
 	}
 }
