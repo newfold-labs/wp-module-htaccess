@@ -1,13 +1,4 @@
 <?php
-/**
- * Migrator for legacy fragment-markered blocks outside the managed NFD block.
- *
- * Removes legacy "# BEGIN <label> ... # END <label>" blocks so that only the
- * single managed NFD block remains authoritative. Run only during Updater writes.
- *
- * @package NewfoldLabs\WP\Module\Htaccess
- */
-
 namespace NewfoldLabs\WP\Module\Htaccess;
 
 /**
@@ -25,49 +16,87 @@ class Migrator {
 	 *
 	 * @since 1.0.0
 	 *
-	 * @param string   $text           Full .htaccess content (LF-normalized recommended).
-	 * @param string[] $legacy_labels  Labels to remove (e.g., "Newfold Skip 404 Handling for Static Files").
+	 * @param string   $text          Full .htaccess content (any line endings).
+	 * @param string[] $legacy_labels Labels to remove (e.g., "Newfold Skip 404 Handling for Static Files").
 	 * @return array { 'text' => string, 'removed' => int }
 	 */
 	public function remove_legacy_blocks( $text, $legacy_labels ) {
-		$buf     = (string) $text;
-		$removed = 0;
+		$buf = (string) $text;
 
-		if ( empty( $legacy_labels ) ) {
+		// Normalize to LF once so regex anchors behave predictably.
+		$buf = str_replace( array( "\r\n", "\r" ), "\n", $buf );
+
+		// Nothing to do?
+		if ( '' === $buf || empty( $legacy_labels ) || ! is_array( $legacy_labels ) ) {
 			return array(
-				'text'    => $buf,
+				'text'    => $this->postprocess( $buf ),
 				'removed' => 0,
 			);
 		}
 
+		// De-dupe, trim, drop empties.
+		$labels = array();
 		foreach ( $legacy_labels as $label ) {
-			$label = (string) $label;
-			if ( '' === $label ) {
+			$l = trim( (string) $label );
+			if ( '' === $l ) {
 				continue;
 			}
-			$begin = '/^\s*#\s*BEGIN\s+' . preg_quote( $label, '/' ) . '\s*$/m';
-			$end   = '/^\s*#\s*END\s+' . preg_quote( $label, '/' ) . '\s*$/m';
+			// Defensive: never remove our managed marker block.
+			if ( 0 === strcasecmp( $l, 'NFD Htaccess' ) ) {
+				continue;
+			}
+			$labels[ $l ] = true;
+		}
+		if ( empty( $labels ) ) {
+			return array(
+				'text'    => $this->postprocess( $buf ),
+				'removed' => 0,
+			);
+		}
 
-			// Build a single regex that removes the BEGIN..END block including surrounding whitespace.
-			$pattern = '/^\s*#\s*BEGIN\s+' . preg_quote( $label, '/' ) . '\s*$.*?^\s*#\s*END\s+' . preg_quote( $label, '/' ) . '\s*$/ms';
+		$removed = 0;
+
+		// Remove each label’s BEGIN..END block(s), if present.
+		foreach ( array_keys( $labels ) as $label ) {
+			$quoted = preg_quote( $label, '/' );
+
+			/**
+			 * Pattern notes:
+			 * - ^\s*#\s*BEGIN <label>$  anchored in /m
+			 * - [\s\S]*? matches lazily across lines (like DOTALL) without relying solely on 's'
+			 * - Atomic group (?>...) limits catastrophic backtracking on large files
+			 * - ^\s*#\s*END <label>$ anchored in /m
+			 */
+			$pattern = '/^\s*#\s*BEGIN\s+' . $quoted . '\s*$'         // BEGIN line
+					. '(?>[\s\S]*?)'                                 // non-greedy body (atomic)
+					. '^\s*#\s*END\s+' . $quoted . '\s*$'            // END line
+					. '/m';
 
 			$before = $buf;
 			$buf    = preg_replace( $pattern, '', $buf, -1, $count );
+
 			if ( null === $buf ) {
-				// On regex failure, revert and skip this label.
+				// On regex error revert and skip this label.
 				$buf = $before;
 				continue;
 			}
 			$removed += (int) $count;
 		}
 
-		// Collapse extra blank lines and ensure single trailing newline.
-		$buf = preg_replace( "/\n{3,}/", "\n\n", $buf );
-		$buf = rtrim( $buf, "\n" ) . "\n";
-
 		return array(
-			'text'    => $buf,
+			'text'    => $this->postprocess( $buf ),
 			'removed' => $removed,
 		);
+	}
+
+	/**
+	 * Collapse excessive blanks and ensure single trailing newline.
+	 *
+	 * @param string $buf LF-normalized text.
+	 * @return string
+	 */
+	private function postprocess( $buf ) {
+		$buf = preg_replace( "/\n{3,}/", "\n\n", (string) $buf );
+		return rtrim( $buf, "\n" ) . "\n";
 	}
 }
