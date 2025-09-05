@@ -75,7 +75,7 @@ class Updater {
 
 		// Read full current file once (LF-normalized).
 		$current_full = $this->read_file( $path );
-		$current_full = str_replace( array( "\r\n", "\r" ), "\n", $current_full );
+		$current_full = Text::normalize_lf( $current_full, false );
 
 		// Derive current block lines from the in-memory text (avoid extra disk IO).
 		$pair  = $this->get_marker_regex_pair();
@@ -242,17 +242,21 @@ class Updater {
 		if ( ! function_exists( 'insert_with_markers' ) || ! function_exists( 'extract_from_markers' ) ) {
 			require_once ABSPATH . 'wp-admin/includes/misc.php';
 		}
+		if ( ! function_exists( 'wp_delete_file' ) ) {
+			require_once ABSPATH . 'wp-admin/includes/file.php';
+		}
 	}
-		/**
-		 * Compute the single backup file path for the given .htaccess.
-		 *
-		 * Uses a stable filename in the same directory to avoid creating many backups.
-		 *
-		 * @since 1.0.0
-		 *
-		 * @param string $path Htaccess file path.
-		 * @return string Backup path.
-		 */
+
+	/**
+	 * Compute the single backup file path for the given .htaccess.
+	 *
+	 * Uses a stable filename in the same directory to avoid creating many backups.
+	 *
+	 * @since 1.0.0
+	 *
+	 * @param string $path Htaccess file path.
+	 * @return string Backup path.
+	 */
 	protected function get_backup_path( $path ) {
 		$dir  = dirname( (string) $path );
 		$name = '.htaccess.nfd-backup';
@@ -326,25 +330,71 @@ class Updater {
 	 * @param string $data Contents to write.
 	 * @return bool True on success.
 	 */
+	/**
+	 * Write file contents atomically where possible.
+	 *
+	 * @since 1.0.0
+	 *
+	 * @param string $path Destination path.
+	 * @param string $data Contents to write.
+	 * @return bool True on success.
+	 */
 	protected function write_file_atomic( $path, $data ) {
 		$path = (string) $path;
 		$tmp  = $path . '.tmp-' . uniqid( 'nfd', true );
 
-		// Atomic local write is intentional; WP_Filesystem isn't guaranteed or atomic.
-		// phpcs:ignore WordPress.WP.AlternativeFunctions.file_system_operations_file_put_contents
-		if ( false === file_put_contents( $tmp, (string) $data ) ) {
-			return false;
+		// Ensure wp_delete_file() exists for cleanup fallback.
+		if ( ! function_exists( 'wp_delete_file' ) ) {
+			require_once ABSPATH . 'wp-admin/includes/file.php';
 		}
 
-		// We prefer POSIX-style rename for atomic replace on same filesystem.
-		// phpcs:ignore WordPress.WP.AlternativeFunctions.rename_rename
-		if ( ! rename( $tmp, $path ) ) {
+		// Capture existing mode to preserve permissions.
+		$mode = null;
+		if ( file_exists( $path ) ) {
+			$mode = fileperms( $path );
+		}
+
+		// Write tmp file (binary, no truncation surprises).
+		$fp = fopen( $tmp, 'wb' );
+		if ( false === $fp ) {
+			return false;
+		}
+		$bytes = fwrite( $fp, (string) $data );
+		if ( false === $bytes ) {
+			fclose( $fp );
 			wp_delete_file( $tmp );
 			return false;
 		}
+		fflush( $fp );
+		// Try to fsync for extra safety (ignored if not supported).
+		if ( function_exists( 'fsync' ) ) {
+			fsync( $fp );
+		}
+		fclose( $fp );
 
-		return true;
+		// Apply old mode to tmp (best effort).
+		if ( null !== $mode ) {
+			// phpcs:ignore WordPress.PHP.NoSilencedErrors.Discouraged
+			chmod( $tmp, $mode & 0777 );
+		}
+
+		// Try POSIX atomic rename first.
+		// phpcs:ignore WordPress.WP.AlternativeFunctions.rename_rename
+		if ( rename( $tmp, $path ) ) {
+			return true;
+		}
+
+		// Cross-FS fallback: copy then rename/delete.
+		// phpcs:ignore WordPress.WP.AlternativeFunctions.file_system_operations_copy
+		if ( copy( $tmp, $path ) ) {
+			wp_delete_file( $tmp );
+			return true;
+		}
+
+		wp_delete_file( $tmp );
+		return false;
 	}
+
 
 	/**
 	 * Run a post-write health check using the Scanner.
@@ -428,13 +478,25 @@ class Updater {
 			}
 		}
 
-		// No block found.
 		if ( empty( $lines ) ) {
-			return '';
+			$buf = $this->read_file( $path );
+			if ( '' !== $buf ) {
+				$buf                 = Text::normalize_lf( $buf, false );
+				list( $begin, $end ) = $this->get_marker_regex_pair();
+				if ( preg_match( $begin, $buf, $mb, PREG_OFFSET_CAPTURE ) && preg_match( $end, $buf, $me, PREG_OFFSET_CAPTURE ) ) {
+					$start = $mb[0][1] + strlen( $mb[0][0] );
+					$stop  = $me[0][1];
+					if ( $stop > $start ) {
+						$inside = rtrim( substr( $buf, $start, $stop - $start ), "\n" );
+						$lines  = explode( "\n", $inside );
+					}
+				}
+			}
 		}
 
-		return $this->compute_body_hash_from_lines( $lines );
+		return empty( $lines ) ? '' : $this->compute_body_hash_from_lines( $lines );
 	}
+
 
 	/**
 	 * Build the full block text including BEGIN/END markers from body lines.
@@ -491,16 +553,18 @@ class Updater {
 	}
 
 	/**
-	 * Return regex patterns for BEGIN/END markers.
+	 * Return regex patterns for BEGIN/END markers for a marker label.
 	 *
 	 * @since 1.0.0
 	 *
-	 * @return array { string $begin, string $end }
+	 * @param string|null $marker Override (defaults to $this->marker).
+	 * @return array{string,string} { $begin, $end }
 	 */
-	protected function get_marker_regex_pair() {
+	protected function get_marker_regex_pair( $marker = null ) {
+		$label = preg_quote( ( null !== $marker ? (string) $marker : $this->marker ), '/' );
 		return array(
-			'/^\s*#\s*BEGIN\s+' . preg_quote( $this->marker, '/' ) . '\s*$/m',
-			'/^\s*#\s*END\s+' . preg_quote( $this->marker, '/' ) . '\s*$/m',
+			'/^\s*#\s*BEGIN\s+' . $label . '\s*$/m',
+			'/^\s*#\s*END\s+' . $label . '\s*$/m',
 		);
 	}
 }

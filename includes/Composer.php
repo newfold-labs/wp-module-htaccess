@@ -92,7 +92,7 @@ class Composer {
 					continue;
 				}
 				$rendered = (string) $fragment->render( $context );
-				$rendered = Text::normalize_lf( $rendered );
+				$rendered = Text::normalize_lf( $rendered, false );
 				$rendered = Text::trim_surrounding_blank_lines( $rendered );
 
 				if ( '' !== $rendered ) {

@@ -67,7 +67,6 @@ class Validator {
 		return empty( $this->errors );
 	}
 
-
 	/**
 	 * Return errors collected during last validation.
 	 *
