@@ -671,110 +671,6 @@ class Manager {
 	}
 
 	/**
-	 * Compute the sha256 checksum of the BODY currently inside the NFD managed block,
-	 * ignoring the in-block header. Returns '' ONLY if the block is missing/unreadable.
-	 *
-	 * Robust behavior:
-	 * - Prefer extract_from_markers(); if unavailable or empty, fall back to manual parse.
-	 * - Anchor on "# STATE sha256:" to find the body start; otherwise skip leading "#" lines
-	 *   and a single blank separator.
-	 *
-	 * @since 1.0.0
-	 *
-	 * @return string sha256 checksum of body, or '' if no block found.
-	 */
-	protected function compute_current_block_checksum() {
-		// Resolve .htaccess path.
-		$path = '';
-		if ( function_exists( 'get_home_path' ) ) {
-			$home = get_home_path();
-			if ( is_string( $home ) && '' !== $home ) {
-				$path = rtrim( $home, "/\\ \t\n\r\0\x0B" ) . DIRECTORY_SEPARATOR . '.htaccess';
-			}
-		}
-		if ( '' === $path && defined( 'ABSPATH' ) ) {
-			$path = rtrim( ABSPATH, "/\\ \t\n\r\0\x0B" ) . DIRECTORY_SEPARATOR . '.htaccess';
-		}
-		if ( '' === $path || ! is_readable( $path ) ) {
-			return '';
-		}
-
-		// Try WordPress helpers first.
-		$this->ensure_wp_file_helpers();
-		$lines = array();
-		if ( function_exists( 'extract_from_markers' ) ) {
-			$lines = extract_from_markers( $path, Config::marker() );
-			if ( ! is_array( $lines ) ) {
-				$lines = array();
-			}
-		}
-
-		// Fallback: manual parse if helpers failed to find the block.
-		if ( empty( $lines ) ) {
-			// phpcs:ignore WordPress.WP.AlternativeFunctions.file_get_contents_file_get_contents
-			$buf = file_get_contents( $path );
-			if ( ! is_string( $buf ) || '' === $buf ) {
-				return '';
-			}
-			$buf = Text::normalize_lf( $buf, false );
-
-			$begin_re = '/^\s*#\s*BEGIN\s+' . preg_quote( Config::marker(), '/' ) . '\s*$/mi';
-			$end_re   = '/^\s*#\s*END\s+' . preg_quote( Config::marker(), '/' ) . '\s*$/mi';
-
-			if ( ! preg_match( $begin_re, $buf, $mb, PREG_OFFSET_CAPTURE ) ) {
-				return '';
-			}
-			if ( ! preg_match( $end_re, $buf, $me, PREG_OFFSET_CAPTURE ) ) {
-				return '';
-			}
-			$begin_pos = $mb[0][1] + strlen( $mb[0][0] );
-			$end_pos   = $me[0][1];
-
-			if ( $end_pos <= $begin_pos ) {
-				return '';
-			}
-
-			$inner = substr( $buf, $begin_pos, $end_pos - $begin_pos );
-			$inner = ltrim( $inner, "\n" );
-			$lines = explode( "\n", $inner );
-		}
-
-		// If still nothing, no block present.
-		if ( empty( $lines ) ) {
-			return '';
-		}
-
-		// Find "# STATE sha256:" header line. If missing, fall back to skipping header comments.
-		$state_index = -1;
-		foreach ( $lines as $i => $line ) {
-			if ( preg_match( '/^\s*#\s*STATE\s+sha256:\s*[0-9a-f]{64}\b/i', $line ) ) {
-				$state_index = $i;
-				break;
-			}
-		}
-
-		$start = ( -1 === $state_index ) ? 0 : $state_index + 1;
-		if ( -1 === $state_index ) {
-			// Skip leading comment header lines if no STATE line.
-			$max = count( $lines );
-			while ( $start < $max && preg_match( '/^\s*#/', $lines[ $start ] ) ) {
-				++$start;
-			}
-		}
-		// Skip a single blank separator if present.
-		if ( $start < count( $lines ) && '' === trim( $lines[ $start ] ) ) {
-			++$start;
-		}
-
-		$body_lines = array_slice( $lines, $start );
-		$body       = implode( "\n", $body_lines );
-		$body       = Text::normalize_lf( $body, true );
-
-		// Return hash of the body (empty body => e3b0c442...).
-		return hash( 'sha256', $body );
-	}
-
-	/**
 	 * Ensure WP marker helpers are available.
 	 *
 	 * @since 1.0.0
@@ -782,7 +678,7 @@ class Manager {
 	 * @return void
 	 */
 	protected function ensure_wp_file_helpers() {
-		if ( ! function_exists( 'insert_with_markers' ) || ! function_exists( 'extract_from_markers' ) ) {
+		if ( ! function_exists( 'insert_with_markers' ) ) {
 			require_once ABSPATH . 'wp-admin/includes/misc.php';
 		}
 	}

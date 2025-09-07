@@ -239,7 +239,7 @@ class Updater {
 	 * @return void
 	 */
 	protected function ensure_wp_file_helpers() {
-		if ( ! function_exists( 'insert_with_markers' ) || ! function_exists( 'extract_from_markers' ) ) {
+		if ( ! function_exists( 'insert_with_markers' ) ) {
 			require_once ABSPATH . 'wp-admin/includes/misc.php';
 		}
 		if ( ! function_exists( 'wp_delete_file' ) ) {
@@ -462,41 +462,35 @@ class Updater {
 	 *
 	 * @return string
 	 */
+	/**
+	 * Return the sha256 of the BODY currently inside the managed block on disk,
+	 * ignoring only the in-block STATE/header line. Returns '' if the block is missing.
+	 *
+	 * Includes any inner fragment markers (e.g. "# BEGIN Something" ... "# END Something")
+	 * so the hash matches bodies that were persisted/written with those markers.
+	 *
+	 * @since 1.0.0
+	 *
+	 * @return string
+	 */
 	public function get_current_body_hash() {
 		$path = $this->get_htaccess_path();
 		if ( '' === $path ) {
 			return '';
 		}
 
-		$this->ensure_wp_file_helpers();
-
-		$lines = array();
-		if ( function_exists( 'extract_from_markers' ) ) {
-			$lines = extract_from_markers( $path, $this->marker );
-			if ( ! is_array( $lines ) ) {
-				$lines = array();
-			}
+		$full = $this->read_file( $path );
+		if ( '' === $full ) {
+			return '';
 		}
 
-		if ( empty( $lines ) ) {
-			$buf = $this->read_file( $path );
-			if ( '' !== $buf ) {
-				$buf                 = Text::normalize_lf( $buf, false );
-				list( $begin, $end ) = $this->get_marker_regex_pair();
-				if ( preg_match( $begin, $buf, $mb, PREG_OFFSET_CAPTURE ) && preg_match( $end, $buf, $me, PREG_OFFSET_CAPTURE ) ) {
-					$start = $mb[0][1] + strlen( $mb[0][0] );
-					$stop  = $me[0][1];
-					if ( $stop > $start ) {
-						$inside = rtrim( substr( $buf, $start, $stop - $start ), "\n" );
-						$lines  = explode( "\n", $inside );
-					}
-				}
-			}
+		$inside = Text::extract_from_markers_text( $full, $this->marker );
+		if ( '' === $inside ) {
+			return '';
 		}
 
-		return empty( $lines ) ? '' : $this->compute_body_hash_from_lines( $lines );
+		return hash( 'sha256', Text::canonicalize_managed_body_for_hash( $inside ) );
 	}
-
 
 	/**
 	 * Build the full block text including BEGIN/END markers from body lines.
@@ -566,5 +560,86 @@ class Updater {
 			'/^\s*#\s*BEGIN\s+' . $label . '\s*$/m',
 			'/^\s*#\s*END\s+' . $label . '\s*$/m',
 		);
+	}
+
+	/**
+	 * Return the raw text inside "# BEGIN <marker>" ... "# END <marker>".
+	 * Preserves *all* lines (including comment lines) between the markers.
+	 *
+	 * @param string $buf    Full file contents (LF normalized recommended).
+	 * @param string $marker Marker label, e.g. "NFD Htaccess".
+	 * @return string Inside text (without BEGIN/END lines), or '' if not found/invalid.
+	 */
+	protected function slice_inside_markers_preserve_comments( $buf, $marker ) {
+		$buf = (string) $buf;
+		if ( '' === $buf ) {
+			return '';
+		}
+
+		$begin = '/^\s*#\s*BEGIN\s+' . preg_quote( (string) $marker, '/' ) . '\s*$/m';
+		$end   = '/^\s*#\s*END\s+' . preg_quote( (string) $marker, '/' ) . '\s*$/m';
+
+		if ( ! preg_match( $begin, $buf, $mb, PREG_OFFSET_CAPTURE ) ) {
+			return '';
+		}
+		if ( ! preg_match( $end, $buf, $me, PREG_OFFSET_CAPTURE ) ) {
+			return '';
+		}
+
+		$start = $mb[0][1] + strlen( $mb[0][0] );
+		// Move past the newline after the BEGIN line if present.
+		if ( isset( $buf[ $start ] ) && "\n" === $buf[ $start ] ) {
+			++$start;
+		}
+		$stop = $me[0][1];
+		if ( $stop <= $start ) {
+			return '';
+		}
+
+		return substr( $buf, $start, $stop - $start );
+	}
+
+	/**
+	 * Canonicalize the managed body for hashing:
+	 * - drop the two in-block header lines ("Managed by...", "STATE sha256: ...")
+	 * - drop a single blank line immediately after those headers (if present)
+	 * - KEEP any nested "# BEGIN/# END" lines (we want them hashed)
+	 * - normalize to LF and trim trailing newlines
+	 *
+	 * @param string|string[] $body_or_lines Body text or array of lines.
+	 * @since 1.0.0
+	 *
+	 * @return string
+	 */
+	protected function canonicalize_body_for_hash_keep_markers( $body_or_lines ) {
+		if ( is_array( $body_or_lines ) ) {
+			$lines = $body_or_lines;
+		} else {
+			$norm  = Text::normalize_lf( (string) $body_or_lines, false );
+			$lines = explode( "\n", $norm );
+		}
+
+		// Remove the two header lines if present.
+		if ( isset( $lines[0] ) && preg_match( '/^\s*#\s*Managed by\b/i', $lines[0] ) ) {
+			array_shift( $lines );
+		}
+		if ( isset( $lines[0] ) && preg_match( '/^\s*#\s*STATE\s+sha256:/i', $lines[0] ) ) {
+			array_shift( $lines );
+		}
+		// Optional single blank separator after header.
+		if ( isset( $lines[0] ) && '' === trim( $lines[0] ) ) {
+			array_shift( $lines );
+		}
+
+		$canon = implode(
+			"\n",
+			array_map(
+				static function ( $ln ) {
+					return rtrim( (string) $ln, "\r\n" ); },
+				$lines
+			)
+		);
+
+		return rtrim( Text::normalize_lf( $canon, false ), "\n" );
 	}
 }

@@ -421,21 +421,42 @@ class Scanner {
 	/**
 	 * Extract lines inside a marker block from an .htaccess file.
 	 *
-	 * @since 1.0.0
+	 * Preserves all inner lines (including nested # BEGIN/# END and comment lines).
+	 * Falls back to WP core extract_from_markers() if the Text helper isn't available.
 	 *
-	 * @param string $path   .htaccess path.
+	 * @since 1.0.0
+	 * @since 1.1.0 Use Text::extract_from_markers_raw() for consistent parsing.
+	 *
+	 * @param string $path   Absolute .htaccess path.
 	 * @param string $marker Marker label.
-	 * @return array Lines inside the block (without BEGIN/END) or empty array.
+	 * @return string[] Lines inside the block (without the outer BEGIN/END) or empty array.
 	 */
 	protected function extract_marker_lines( $path, $marker ) {
-		$this->ensure_wp_file_helpers();
+		$path   = (string) $path;
+		$marker = (string) $marker;
 
-		if ( ! function_exists( 'extract_from_markers' ) ) {
+		if ( '' === $path || '' === $marker ) {
 			return array();
 		}
 
-		$lines = extract_from_markers( $path, $marker );
-		return is_array( $lines ) ? $lines : array();
+		// Prefer our own extractor (preserves all inner content).
+		if ( class_exists( __NAMESPACE__ . '\Text' ) && method_exists( __NAMESPACE__ . '\Text', 'extract_from_markers_raw' ) ) {
+			$buf = $this->read_file( $path );
+			if ( '' === $buf ) {
+				return array();
+			}
+			$lines = Text::extract_from_markers_raw( $buf, $marker );
+			return is_array( $lines ) ? $lines : array();
+		}
+
+		// Fallback to WP core behavior (skips comment lines inside the block).
+		$this->ensure_wp_file_helpers();
+		if ( function_exists( 'extract_from_markers' ) ) {
+			$lines = extract_from_markers( $path, $marker );
+			return is_array( $lines ) ? $lines : array();
+		}
+
+		return array();
 	}
 
 	/**
