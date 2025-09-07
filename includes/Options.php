@@ -21,7 +21,6 @@ final class Options {
 		'saved_state'     => 'saved_state',
 		'needs_update'    => 'needs_update',
 		'write_lock'      => 'write_lock',
-		'persist_needed'  => 'persist_needed',
 		'early_fragments' => 'early_fragments',
 	);
 

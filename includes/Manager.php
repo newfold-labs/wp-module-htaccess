@@ -270,7 +270,6 @@ class Manager {
 	 * Compose, validate, and merge ONLY the NFD-managed block into .htaccess.
 	 *
 	 * - Prefers saved state's composed body when available (durable/idempotent).
-	 * - If 'persist_needed' is set, composes from current fragments and persists
 	 *   the result back to saved state (then clears that transient).
 	 * - Collects legacy labels from BOTH current fragments and the saved body.
 	 * - Validates/remediates before writing; Updater no-ops if unchanged.
@@ -293,13 +292,12 @@ class Manager {
 			// Load saved state and flags.
 			$saved           = $this->load_saved_state();
 			$have_saved_body = ( is_array( $saved ) && ! empty( $saved['body'] ) );
-			$force_compose   = (bool) get_site_transient( Options::get_option_name( 'persist_needed' ) );
 
 			// Enabled fragments (non-WP, exclusivity enforced).
 			$enabled = $this->enabled_non_wp_fragments( $context );
 
 			// Source of truth for body.
-			if ( $have_saved_body && ! $force_compose ) {
+			if ( $have_saved_body ) {
 				// Reuse persisted body; still gather current fragments for labels.
 				$body = (string) $saved['body'];
 			} else {
@@ -319,31 +317,6 @@ class Manager {
 			$labels_from_frags = $this->collect_legacy_marker_labels( $enabled, $context );
 			$labels_from_state = $this->collect_labels_from_saved_state( $have_saved_body ? $saved : array() );
 			$legacy_labels     = array_values( array_unique( array_merge( $labels_from_frags, $labels_from_state ) ) );
-
-			// Persist composed body if we were asked to.
-			if ( $force_compose ) {
-				// Start from existing $saved to preserve any metadata keys.
-				$saved['blocks'] = array();
-
-				// Rebuild blocks map from the enabled fragments so saved state reflects reality.
-				foreach ( $enabled as $f ) {
-					if ( ! $f instanceof Fragment ) { continue; }
-					$id       = method_exists( $f, 'id' ) ? (string) $f->id() : get_class( $f );
-					$priority = (int) ( method_exists( $f, 'priority' ) ? $f->priority() : 0 );
-
-					$block = Text::trim_surrounding_blank_lines( Text::normalize_lf( (string) $f->render( $context ), false ) );
-
-					$saved['blocks'][ $id ] = array(
-						'body'     => $block,
-						'priority' => $priority,
-					);
-				}
-
-				$this->save_state_full( $saved, $body, $host, $version );
-
-				// Clear the one-shot transient ONLY if we consumed it.
-				delete_site_transient( Options::get_option_name( 'persist_needed' ) );
-			}
 
 			// Merge into the managed marker block.
 			$this->updater->apply_managed_block( $body, $host, $version, $legacy_labels );
