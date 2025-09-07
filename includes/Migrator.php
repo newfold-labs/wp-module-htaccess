@@ -21,10 +21,11 @@ class Migrator {
 	 * @return array { 'text' => string, 'removed' => int }
 	 */
 	public function remove_legacy_blocks( $text, $legacy_labels ) {
+		// Normalize to LF, remove BOM, normalize NBSPs to spaces.
 		$buf = (string) $text;
-
-		// Normalize to LF once so regex anchors behave predictably.
 		$buf = str_replace( array( "\r\n", "\r" ), "\n", $buf );
+		$buf = ltrim( $buf, "\xEF\xBB\xBF" );          // UTF-8 BOM
+		$buf = str_replace( "\xC2\xA0", ' ', $buf );    // NBSP -> space
 
 		// Nothing to do?
 		if ( '' === $buf || empty( $legacy_labels ) || ! is_array( $legacy_labels ) ) {
@@ -34,14 +35,13 @@ class Migrator {
 			);
 		}
 
-		// De-dupe, trim, drop empties.
+		// De-dupe/trim and never target our managed marker.
 		$labels = array();
 		foreach ( $legacy_labels as $label ) {
 			$l = trim( (string) $label );
 			if ( '' === $l ) {
 				continue;
 			}
-			// Defensive: never remove our managed marker block.
 			if ( 0 === strcasecmp( $l, Config::marker() ) ) {
 				continue;
 			}
@@ -56,28 +56,29 @@ class Migrator {
 
 		$removed = 0;
 
-		// Remove each label’s BEGIN..END block(s), if present.
 		foreach ( array_keys( $labels ) as $label ) {
-			$quoted = preg_quote( $label, '/' );
+			$quoted = preg_quote( $label, '~' );
 
 			/**
-			 * Pattern notes:
-			 * - ^\s*#\s*BEGIN <label>$  anchored in /m
-			 * - [\s\S]*? matches lazily across lines (like DOTALL) without relying solely on 's'
-			 * - Atomic group (?>...) limits catastrophic backtracking on large files
-			 * - ^\s*#\s*END <label>$ anchored in /m
+			 * More-forgiving marker remover:
+			 * - ^[ \t]*#\s*BEGIN <label>\s*$   (BEGIN line, multiline)
+			 * - (.*?)                           (lazy body, including newlines)
+			 * - ^[ \t]*#\s*END <label>\s*$     (END line, multiline)
+			 *
+			 * Flags:
+			 * - m: ^ and $ are per-line
+			 * - s: dot also matches \n
+			 * - u: unicode-safe
 			 */
-			$pattern = '/^\s*#\s*BEGIN\s+' . $quoted . '\s*$'         // BEGIN line
-					. '(?>[\s\S]*?)'                                 // non-greedy body (atomic)
-					. '^\s*#\s*END\s+' . $quoted . '\s*$'            // END line
-					. '/m';
+			$pattern = '~^[ \t]*#\s*BEGIN\s+' . $quoted . '\s*$'
+				. '(.*?)'
+				. '^[ \t]*#\s*END\s+' . $quoted . '\s*$~msu';
 
-			$before = $buf;
-			$buf    = preg_replace( $pattern, '', $buf, -1, $count );
+			$buf = preg_replace( $pattern, '', $buf, -1, $count );
 
 			if ( null === $buf ) {
-				// On regex error revert and skip this label.
-				$buf = $before;
+				// Regex engine error; skip this label safely.
+				$buf = (string) $text;
 				continue;
 			}
 			$removed += (int) $count;
@@ -88,6 +89,7 @@ class Migrator {
 			'removed' => $removed,
 		);
 	}
+
 
 	/**
 	 * Collapse excessive blanks and ensure single trailing newline.

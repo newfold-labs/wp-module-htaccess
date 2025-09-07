@@ -77,6 +77,15 @@ class Manager {
 	protected $state_option_key;
 
 	/**
+	 * Whether the plugin is currently being deactivated.
+	 *
+	 * Used to avoid queuing applies during deactivation.
+	 *
+	 * @var bool
+	 */
+	protected $deactivating = false;
+
+	/**
 	 * Constructor.
 	 *
 	 * Keep construction minimal; heavy lifting happens in boot().
@@ -98,14 +107,13 @@ class Manager {
 	 */
 	public function boot() {
 		// Instantiate internal services.
-		$this->registry         = new Registry();
+		$this->registry         = Api::registry();
 		$this->validator        = new Validator();
 		$this->updater          = new Updater();
 		$this->cron             = new Cron();
 		$this->state_option_key = Options::get_option_name( 'saved_state' );
 
 		// Expose to static API for other modules to use without the container.
-		Api::set_registry( $this->registry );
 		Api::set_manager( $this );
 
 		// Reconcile persisted block vs. disk at init (queues if drift found).
@@ -113,9 +121,6 @@ class Manager {
 		add_action( 'admin_init', array( $this, 'reconcile_saved_block' ), 1 );
 
 		// Queue on common events that affect rewrite rules or fragments.
-		add_action( 'switch_theme', array( $this, 'queue_apply' ) );
-		add_action( 'activated_plugin', array( $this, 'queue_apply' ) );
-		add_action( 'deactivated_plugin', array( $this, 'queue_apply' ) );
 		add_action( 'permalink_structure_changed', array( $this, 'queue_apply' ) );
 
 		// Option watcher (e.g., permalink, home/siteurl, module toggles).
@@ -130,6 +135,8 @@ class Manager {
 
 		// Register cron scheduling and handler.
 		$this->cron->register();
+
+		register_deactivation_hook( $this->container->plugin()->file, array( $this, 'on_plugin_deactivation' ) );
 	}
 
 	/**
@@ -207,7 +214,7 @@ class Manager {
 	 * @return void
 	 */
 	public function maybe_apply_on_shutdown() {
-		if ( ! ( $this->is_safe_context() && $this->dirty ) ) {
+		if ( $this->deactivating || ! ( $this->is_safe_context() && $this->dirty ) ) {
 			return;
 		}
 
@@ -216,6 +223,17 @@ class Manager {
 		$this->dirty = false;
 
 		$this->apply_canonical_state();
+	}
+
+	/**
+	 * Deactivation hook to perform when plugin is deactivated or feature is disabled
+	 *
+	 * @since 1.0.0
+	 * @return void
+	 */
+	public function on_plugin_deactivation() {
+		$this->deactivating = true;
+		$this->remove_canonical_block();
 	}
 
 	/**
@@ -261,7 +279,7 @@ class Manager {
 	 *
 	 * @return void
 	 */
-	protected function apply_canonical_state() {
+	public function apply_canonical_state() {
 		if ( ! $this->acquire_lock() ) {
 			return; // another request is writing
 		}
@@ -272,7 +290,7 @@ class Manager {
 			$host    = $context->host();
 			$version = defined( 'NFD_MODULE_HTACCESS_VERSION' ) ? NFD_MODULE_HTACCESS_VERSION : '1.0.0';
 
-			// Single read of saved state + flags.
+			// Load saved state and flags.
 			$saved           = $this->load_saved_state();
 			$have_saved_body = ( is_array( $saved ) && ! empty( $saved['body'] ) );
 			$force_compose   = (bool) get_site_transient( Options::get_option_name( 'persist_needed' ) );
@@ -280,8 +298,7 @@ class Manager {
 			// Enabled fragments (non-WP, exclusivity enforced).
 			$enabled = $this->enabled_non_wp_fragments( $context );
 
-			// Determine source of truth for $body; also prep labels list.
-			$fragments_for_migrator = $enabled;
+			// Source of truth for body.
 			if ( $have_saved_body && ! $force_compose ) {
 				// Reuse persisted body; still gather current fragments for labels.
 				$body = (string) $saved['body'];
@@ -290,35 +307,31 @@ class Manager {
 				$body = Composer::compose_body_only( $enabled, $context );
 			}
 
-			// Validate & remediate before writing; abort if still invalid.
-			if ( ! $this->validator->is_valid( $body, array() ) ) {
+			// Validate/remediate.
+			if ( '' !== $body && ! $this->validator->is_valid( $body, array() ) ) {
 				$body = $this->validator->remediate( $body );
 				if ( ! $this->validator->is_valid( $body, array() ) ) {
-					return; // avoid breaking .htaccess
+					return; // do not write invalid content
 				}
 			}
 
-			// Legacy labels = from current fragments + from saved state (if present).
-			$labels_from_frags = $this->collect_legacy_marker_labels( $fragments_for_migrator, $context );
+			// Legacy labels from fragments + saved state.
+			$labels_from_frags = $this->collect_legacy_marker_labels( $enabled, $context );
 			$labels_from_state = $this->collect_labels_from_saved_state( $have_saved_body ? $saved : array() );
 			$legacy_labels     = array_values( array_unique( array_merge( $labels_from_frags, $labels_from_state ) ) );
 
-			// If we had to compose because persistence was pending, persist to saved state now.
+			// Persist composed body if we were asked to.
 			if ( $force_compose ) {
 				// Start from existing $saved to preserve any metadata keys.
 				$saved['blocks'] = array();
 
 				// Rebuild blocks map from the enabled fragments so saved state reflects reality.
 				foreach ( $enabled as $f ) {
-					if ( ! $f instanceof Fragment ) {
-						continue;
-					}
+					if ( ! $f instanceof Fragment ) { continue; }
 					$id       = method_exists( $f, 'id' ) ? (string) $f->id() : get_class( $f );
 					$priority = (int) ( method_exists( $f, 'priority' ) ? $f->priority() : 0 );
 
-					$block = (string) $f->render( $context );
-					$block = Text::normalize_lf( $block, false );
-					$block = Text::trim_surrounding_blank_lines( $block );
+					$block = Text::trim_surrounding_blank_lines( Text::normalize_lf( (string) $f->render( $context ), false ) );
 
 					$saved['blocks'][ $id ] = array(
 						'body'     => $block,
@@ -332,8 +345,32 @@ class Manager {
 				delete_site_transient( Options::get_option_name( 'persist_needed' ) );
 			}
 
-			// Merge into "# BEGIN marker" block; Updater no-ops if unchanged.
+			// Merge into the managed marker block.
 			$this->updater->apply_managed_block( $body, $host, $version, $legacy_labels );
+		} finally {
+			$this->release_lock();
+		}
+	}
+
+	/**
+	 * Remove ONLY the NFD-managed block immediately (single-shot).
+	 *
+	 * Leaves saved state intact so re-activation can restore it.
+	 *
+	 * @since 1.0.0
+	 * @return void
+	 */
+	public function remove_canonical_block() {
+		if ( ! $this->acquire_lock() ) {
+			return;
+		}
+		try {
+			$context = Context::from_wp( array() );
+			$host    = $context->host();
+			$version = defined( 'NFD_MODULE_HTACCESS_VERSION' ) ? NFD_MODULE_HTACCESS_VERSION : '1.0.0';
+
+			// Empty body => Updater will delete our block atomically (and run post-write checks).
+			$this->updater->apply_managed_block( '', $host, $version );
 		} finally {
 			$this->release_lock();
 		}
@@ -537,6 +574,7 @@ class Manager {
 		}
 
 		$this->save_state_full( $state, $new_body, $host, $version );
+
 		return true;
 	}
 
