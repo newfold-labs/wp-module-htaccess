@@ -9,7 +9,7 @@
  *   wp newfold htaccess apply --version=1.0.0
  *   wp newfold htaccess remediate --version=1.0.0
  *   wp newfold htaccess restore --version=1.0.0
- *   wp newfold htaccess list-backups
+ *   wp newfold htaccess list_backups
  *
  * @package NewfoldLabs\WP\Module\Htaccess
  */

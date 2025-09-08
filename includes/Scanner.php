@@ -126,19 +126,31 @@ class Scanner {
 	/**
 	 * Scan ONLY the NFD managed block for drift/corruption.
 	 *
+	 * Semantics:
+	 * - The authoritative comparison is based on the canonical BODY hash
+	 *   (i.e., the content inside the managed markers with the two in-block
+	 *   header lines removed, and a single optional blank line after them
+	 *   ignored; inner "# BEGIN/# END ..." lines are KEPT). This matches
+	 *   Updater::get_current_body_hash() and Manager's hashing behavior.
+	 * - The header "STATE sha256: ..." (if present) is parsed and returned
+	 *   as current_checksum for observability, but a stale header alone
+	 *   does NOT cause a mismatch if the underlying BODY matches.
+	 *
 	 * @since 1.0.0
+	 * @since 1.1.0 Now compares canonical BODY hashes consistent with Updater/Manager.
 	 *
 	 * @param Context    $context   Context snapshot.
 	 * @param Fragment[] $fragments Enabled NFD fragments to compare against.
 	 * @return array {
 	 *   @type string   status            One of 'ok', 'missing', 'mismatch', 'invalid', 'error'.
 	 *   @type string[] issues            Human-readable issues detected (may be empty).
-	 *   @type string   current_checksum  Current checksum found in file (or empty).
-	 *   @type string   expected_checksum Checksum of recomposed body (or empty).
+	 *   @type string   current_checksum  Checksum parsed from the in-block header (may be stale or empty).
+	 *   @type string   expected_checksum Canonical BODY checksum used for the actual comparison.
 	 *   @type bool     can_remediate     True if a remediation apply should fix drift.
 	 * }
 	 */
 	public function scan( $context, $fragments ) {
+		// Initialize the report scaffold.
 		$report = array(
 			'status'            => 'ok',
 			'issues'            => array(),
@@ -147,6 +159,7 @@ class Scanner {
 			'can_remediate'     => false,
 		);
 
+		// Resolve .htaccess path early to fail fast if unavailable.
 		$path = $this->get_htaccess_path();
 		if ( '' === $path ) {
 			$report['status']   = 'error';
@@ -154,56 +167,59 @@ class Scanner {
 			return $report;
 		}
 
+		// Ensure WP helpers for marker parsing are available when needed.
 		$this->ensure_wp_file_helpers();
 
-		// Current lines inside our marker block.
+		// Read current lines inside our managed marker block (without outer BEGIN/END).
 		$current_lines = $this->extract_marker_lines( $path, $this->marker );
 
-		if ( empty( $current_lines ) ) {
-			$report['status']   = 'missing';
-			$report['issues'][] = 'Managed NFD block not found.';
-		}
+		// Track whether the managed block exists at all (used for status below).
+		$has_block = ! empty( $current_lines );
 
-		$current_hash               = $this->extract_hash_from_lines( $current_lines );
-		$report['current_checksum'] = $current_hash;
+		// Parse the header "STATE sha256: ..." (for observability only).
+		$current_hash_header         = $this->extract_hash_from_lines( $current_lines );
+		$report['expected_checksum'] = $current_hash_header;
 
-		// Build the expected body from provided fragments.
-		$expected_body               = Composer::compose_body_only( $fragments, $context );
-		$expected_body_norm          = Text::normalize_lf( $expected_body, true );
-		$expected_hash               = hash( 'sha256', $expected_body_norm );
-		$report['expected_checksum'] = $expected_hash;
+		// Build the EXPECTED BODY from the provided fragments.
+		$expected_body      = Composer::compose_body_only( $fragments, $context );
+		$expected_body_norm = Text::normalize_lf( $expected_body, true );
 
-		// Validate expected body (light checks).
+		// Validate the expected body; attempt remediation if invalid.
 		if ( ! $this->validator->is_valid( $expected_body_norm, array() ) ) {
 			$report['status']   = 'invalid';
 			$report['issues'][] = 'Expected body did not pass validation: ' . implode( ' | ', $this->validator->get_errors() );
 
-			// Try remediation of expected body for future apply().
+			// Try to remediate and re-validate (best effort).
 			$expected_body_norm = $this->validator->remediate( $expected_body_norm );
 			if ( ! $this->validator->is_valid( $expected_body_norm, array() ) ) {
 				$report['issues'][] = 'Expected body remained invalid after remediation.';
 				return $report;
 			}
-
-			$expected_hash               = hash( 'sha256', $expected_body_norm );
-			$report['expected_checksum'] = $expected_hash;
 		}
 
-		// Decide status if not already error/invalid/missing.
-		if ( 'ok' === $report['status'] && '' !== $expected_hash ) {
-			if ( '' === $current_hash ) {
-				$report['status']   = 'missing';
-				$report['issues'][] = 'Managed NFD block checksum not found; block may be missing or uninitialized.';
-			} elseif ( $current_hash !== $expected_hash ) {
-				$report['status']   = 'mismatch';
-				$report['issues'][] = 'Managed NFD block checksum mismatch (drift detected).';
+		// Compute CURRENT canonical BODY hash (ignores header, keeps inner markers).
+		$current_body_hash          = $this->get_current_body_hash(); // Returns '' if block missing/unreadable.
+		$report['current_checksum'] = $current_hash_header;
+
+		// Decide status based on BODY hash comparison (authoritative).
+		if ( ! $has_block || '' === $current_body_hash ) {
+			// Managed block is missing or unreadable.
+			$report['status']   = 'missing';
+			$report['issues'][] = 'Managed NFD block not found or unreadable.';
+		} elseif ( $current_body_hash !== $report['expected_checksum'] ) {
+			// Managed block exists: compare canonical BODY hash.
+			$report['status']   = 'mismatch';
+			$report['issues'][] = 'Managed NFD block BODY hash mismatch (drift detected).';
+		} else {
+			$report['status'] = 'ok';
+			// Optional: flag a stale header checksum without failing the scan.
+			if ( '' !== $current_hash_header && $current_hash_header !== $report['expected_checksum'] ) {
+				$report['issues'][] = 'Header checksum is stale; BODY matches expected. It will refresh on the next write.';
 			}
 		}
 
-		// If missing or mismatch, we can remediate by re-applying the expected body.
-		if ( 'missing' === $report['status'] || 'mismatch' === $report['status'] ) {
-			$report['can_remediate'] = true;
-		}
+		// If missing or mismatch, remediation (re-applying expected body) can fix drift.
+		$report['can_remediate'] = ( 'missing' === $report['status'] || 'mismatch' === $report['status'] );
 
 		return $report;
 	}
@@ -240,7 +256,7 @@ class Scanner {
 	 *
 	 * Steps:
 	 *  - Pre-check: whole-file validation + loopback HTTP HEAD; only restore if broken.
-	 *  - Restore latest .htaccess.YYYYMMDD-HHMMSS.bak over .htaccess.
+	 *  - Restore latest backup over .htaccess.
 	 *  - Validate the restored full file.
 	 *  - Re-scan the NFD block and remediate it if needed.
 	 *
@@ -270,70 +286,71 @@ class Scanner {
 			'precheck'         => array(),
 		);
 
-		// ---- Pre-check: restore only if clearly broken.
-		$pre                = $this->diagnose( $context );
+		// 1) Precheck current state.
+		$pre                = (array) $this->diagnose( $context );
 		$result['precheck'] = $pre;
-		$needs_restore      = ( ! $pre['file_valid'] ) || ( $pre['http_status'] >= 500 && $pre['http_status'] < 600 );
 
-		if ( ! $needs_restore ) {
-			// No restore needed; still ensure our NFD block is healthy.
-			$scan               = $this->scan( $context, $fragments );
-			$result['nfd_scan'] = $scan;
+		$needs_restore = ( empty( $pre['file_valid'] ) ) ||
+		( isset( $pre['http_status'] ) && $pre['http_status'] >= 500 && $pre['http_status'] < 600 );
 
-			if ( ! empty( $scan['can_remediate'] ) ) {
-				$result['nfd_remediated'] = (bool) $this->remediate( $context, $fragments, $version );
-			}
-
-			$result['full_file_valid']  = $pre['file_valid'];
-			$result['full_file_issues'] = $pre['file_issues'];
-			return $result;
-		}
-
-		// ---- Proceed with restore of latest .bak
 		$path = $this->get_htaccess_path();
 		if ( '' === $path ) {
 			$result['full_file_issues'][] = 'Could not resolve .htaccess path.';
 			return $result;
 		}
 
-		$backups = $this->list_backups();
-		if ( empty( $backups ) ) {
-			$result['full_file_issues'][] = 'No backups found.';
+		// If we don't need restore, still ensure NFD block is healthy and return.
+		if ( ! $needs_restore ) {
+			$scan               = (array) $this->scan( $context, $fragments );
+			$result['nfd_scan'] = $scan;
+
+			if ( ! empty( $scan['can_remediate'] ) ) {
+				$result['nfd_remediated'] = (bool) $this->remediate( $context, $fragments, $version );
+			}
+
+			$result['full_file_valid']  = (bool) $pre['file_valid'];
+			$result['full_file_issues'] = (array) ( $pre['file_issues'] ?? array() );
 			return $result;
 		}
 
-		// Newest first, take index 0.
-		$latest = $backups[0];
-		$dir    = dirname( $path );
-		$src    = $dir . DIRECTORY_SEPARATOR . $latest;
-
-		if ( ! file_exists( $src ) || ! is_readable( $src ) ) {
-			$result['full_file_issues'][] = 'Latest backup is missing or unreadable.';
+		// 2) Resolve the single rolling backup.
+		$backs = (array) $this->list_backups();
+		if ( empty( $backs ) ) {
+			$result['full_file_issues'][] = 'No backup found.';
 			return $result;
 		}
 
+		$backup_name = (string) $backs[0];
+		$src         = dirname( $path ) . DIRECTORY_SEPARATOR . $backup_name;
+
+		if ( ! is_readable( $src ) ) {
+			$result['full_file_issues'][] = 'Backup is missing or unreadable.';
+			return $result;
+		}
+
+		// Restore using Scanner's own helper.
 		if ( ! $this->copy_overwrite( $src, $path ) ) {
 			$result['full_file_issues'][] = 'Backup restore failed.';
 			return $result;
 		}
 
 		$result['restored']        = true;
-		$result['restored_backup'] = $latest;
+		$result['restored_backup'] = $backup_name;
 
-		// ---- Validate the restored full file.
+		// 3) Validate restored file.
 		$text = $this->read_file( $path );
 		$text = Text::normalize_lf( $text, true );
 		if ( '' === $text ) {
 			$result['full_file_issues'][] = 'Restored file is empty or unreadable.';
 		} elseif ( $this->validator->is_valid( $text, array() ) ) {
-				$result['full_file_valid'] = true;
+			$result['full_file_valid'] = true;
 		} else {
 			$result['full_file_valid']  = false;
-			$result['full_file_issues'] = $this->validator->get_errors();
+			$result['full_file_issues'] = (array) $this->validator->get_errors();
 		}
 
-		// ---- Re-check and self-heal our NFD block post-restore.
-		$scan               = $this->scan( $context, $fragments );
+		// 4) Re-scan and remediate NFD if needed.
+		$scan               = (array) $this->scan( $context, $fragments );
 		$result['nfd_scan'] = $scan;
 
 		if ( ! empty( $scan['can_remediate'] ) ) {
@@ -344,13 +361,13 @@ class Scanner {
 	}
 
 	/**
-	 * List available .htaccess backups in the home directory.
+	 * List the single rolling .htaccess backup in the home directory.
 	 *
-	 * Pattern: .htaccess.YYYYMMDD-HHMMSS.bak
+	 * Filename: .htaccess.nfd-backup
 	 *
 	 * @since 1.0.0
 	 *
-	 * @return string[] Filenames only, sorted DESC by timestamp (newest first).
+	 * @return string[] Either ['.htaccess.nfd-backup'] or [] if not present.
 	 */
 	public function list_backups() {
 		$path = $this->get_htaccess_path();
@@ -358,45 +375,14 @@ class Scanner {
 			return array();
 		}
 
-		$dir   = dirname( $path );
-		$files = $this->scan_dir( $dir );
-		$items = array();
+		$dir         = dirname( $path );
+		$single_name = '.htaccess.nfd-backup';
+		$single_full = rtrim( $dir, "/\\ \t\n\r\0\x0B" ) . DIRECTORY_SEPARATOR . $single_name;
 
-		foreach ( $files as $name ) {
-			if ( preg_match( '/^\.htaccess\.(\d{8})-(\d{6})\.bak$/', $name, $m ) ) {
-				// Build sortable numeric timestamp (UTC-like ordering).
-				$ts_str  = $m[1] . $m[2]; // YYYYMMDDHHMMSS
-				$ts_num  = (int) $ts_str;
-				$items[] = array(
-					'name' => $name,
-					'ts'   => $ts_num,
-				);
-			}
-		}
-
-		if ( empty( $items ) ) {
-			return array();
-		}
-
-		// Sort newest first.
-		usort(
-			$items,
-			function ( $a, $b ) {
-				if ( $a['ts'] === $b['ts'] ) {
-					// Stable tie-breaker by name to keep deterministic.
-					return strcmp( $b['name'], $a['name'] );
-				}
-				return ( $a['ts'] < $b['ts'] ) ? 1 : -1;
-			}
-		);
-
-		// Return only filenames.
-		$out = array();
-		foreach ( $items as $it ) {
-			$out[] = $it['name'];
-		}
-		return $out;
+		return is_readable( $single_full ) ? array( $single_name ) : array();
 	}
+
+
 
 	/**
 	 * Extract the NFD block’s checksum from marker lines.
@@ -683,5 +669,116 @@ class Scanner {
 		closedir( $dh );
 
 		return $list;
+	}
+
+	/**
+	 * Return the sha256 of the BODY currently inside the managed block on disk,
+	 * ignoring the in-block header (same semantics as Updater::get_current_body_hash()).
+	 *
+	 * @since 1.1.0
+	 *
+	 * @return string sha256 or '' if block missing/unreadable.
+	 */
+	protected function get_current_body_hash() {
+		$path = $this->get_htaccess_path();
+		if ( '' === $path ) {
+			return '';
+		}
+
+		$full = $this->read_file( $path );
+		if ( '' === $full ) {
+			return '';
+		}
+
+		// Prefer Text helper used by Updater if available.
+		if ( class_exists( __NAMESPACE__ . '\Text' ) && method_exists( __NAMESPACE__ . '\Text', 'extract_from_markers_text' ) ) {
+			$inside = Text::extract_from_markers_text( $full, $this->marker );
+			if ( '' === $inside ) {
+				return '';
+			}
+			if ( method_exists( __NAMESPACE__ . '\Text', 'canonicalize_managed_body_for_hash' ) ) {
+				return hash( 'sha256', Text::canonicalize_managed_body_for_hash( $inside ) );
+			}
+			// Fallback to local canonicalizer if Text helper missing.
+			return hash( 'sha256', $this->canonicalize_body_for_hash_keep_markers( $inside ) );
+		}
+
+		// Fallback path: extract with our existing extractor, then canonicalize.
+		$lines = $this->extract_marker_lines( $path, $this->marker );
+		if ( empty( $lines ) ) {
+			return '';
+		}
+		return $this->compute_body_hash_from_lines( $lines );
+	}
+
+	/**
+	 * Compute sha256 from block lines, ignoring the two header lines and a single blank after them,
+	 * but KEEPING any inner "# BEGIN/# END" lines — matches Updater semantics.
+	 *
+	 * @since 1.1.0
+	 *
+	 * @param array $lines Lines inside the marker block (without outer BEGIN/END).
+	 * @return string
+	 */
+	protected function compute_body_hash_from_lines( $lines ) {
+		if ( ! is_array( $lines ) ) {
+			return '';
+		}
+
+		// Drop "Managed by..." if present.
+		if ( isset( $lines[0] ) && preg_match( '/^\s*#\s*Managed by\b/i', $lines[0] ) ) {
+			array_shift( $lines );
+		}
+		// Drop "STATE sha256: ..." if present.
+		if ( isset( $lines[0] ) && preg_match( '/^\s*#\s*STATE\s+sha256:/i', $lines[0] ) ) {
+			array_shift( $lines );
+		}
+		// Optional single blank after header.
+		if ( isset( $lines[0] ) && '' === trim( $lines[0] ) ) {
+			array_shift( $lines );
+		}
+
+		$body = implode(
+			"\n",
+			array_map(
+				static function ( $ln ) {
+					return rtrim( (string) $ln, "\r\n" ); },
+				$lines
+			)
+		);
+		$body = Text::normalize_lf( $body, false );
+		$body = rtrim( $body, "\n" );
+
+		return hash( 'sha256', $body );
+	}
+
+	/**
+	 * Local canonicalizer for hashing when Text::canonicalize_managed_body_for_hash() isn't available.
+	 *
+	 * @since 1.1.0
+	 *
+	 * @param string|string[] $body_or_lines Body string or lines array.
+	 * @return string
+	 */
+	protected function canonicalize_body_for_hash_keep_markers( $body_or_lines ) {
+		$lines = is_array( $body_or_lines ) ? $body_or_lines : explode( "\n", Text::normalize_lf( (string) $body_or_lines, false ) );
+		if ( isset( $lines[0] ) && preg_match( '/^\s*#\s*Managed by\b/i', $lines[0] ) ) {
+			array_shift( $lines );
+		}
+		if ( isset( $lines[0] ) && preg_match( '/^\s*#\s*STATE\s+sha256:/i', $lines[0] ) ) {
+			array_shift( $lines );
+		}
+		if ( isset( $lines[0] ) && '' === trim( $lines[0] ) ) {
+			array_shift( $lines );
+		}
+		$canon = implode(
+			"\n",
+			array_map(
+				static function ( $ln ) {
+					return rtrim( (string) $ln, "\r\n" ); },
+				$lines
+			)
+		);
+		return rtrim( Text::normalize_lf( $canon, false ), "\n" );
 	}
 }
