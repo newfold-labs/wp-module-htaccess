@@ -58,7 +58,7 @@ class Validator {
 		$this->check_ifmodule_balance( $lines );
 		$this->check_begin_end_balance( $lines );
 		$this->check_rewrite_flag_brackets( $lines );
-		$this->check_forbidden_handlers( $lines );
+		$this->check_forbidden_handlers_scoped( $text );
 
 		if ( ! empty( $exclusive_block_ids ) ) {
 			$this->check_duplicate_exclusive_blocks( $text, (array) $exclusive_block_ids );
@@ -223,22 +223,6 @@ class Validator {
 	}
 
 	/**
-	 * Check for forbidden PHP handler directives that can conflict with host config.
-	 *
-	 * @since 1.0.0
-	 *
-	 * @param string[] $lines Lines to inspect.
-	 * @return void
-	 */
-	protected function check_forbidden_handlers( $lines ) {
-		foreach ( $lines as $i => $line ) {
-			if ( $this->is_forbidden_handler_line( $line ) ) {
-				$this->errors[] = 'Forbidden PHP handler directive at line ' . ( $i + 1 ) . '.';
-			}
-		}
-	}
-
-	/**
 	 * Determine if a line is a forbidden handler directive.
 	 *
 	 * @since 1.0.0
@@ -277,6 +261,41 @@ class Validator {
 				if ( $count > 1 ) {
 					$this->errors[] = 'Duplicate exclusive block "' . $label . '" found (' . $count . ' occurrences).';
 				}
+			}
+		}
+	}
+
+	/**
+	 * Check for forbidden PHP handler directives, but **only** inside the
+	 * NFD-managed block if present. If we’re validating just the body text
+	 * (no markers), we still check it (to protect our managed payload).
+	 *
+	 * @since 1.1.0
+	 *
+	 * @param string $text Full .htaccess text or a body-only string.
+	 * @return void
+	 */
+	protected function check_forbidden_handlers_scoped( $text ) {
+		$text = (string) $text;
+
+		$inside = '';
+		if ( class_exists( __NAMESPACE__ . '\Config' )
+		&& class_exists( __NAMESPACE__ . '\Text' )
+		&& method_exists( __NAMESPACE__ . '\Config', 'marker' )
+		&& method_exists( __NAMESPACE__ . '\Text', 'extract_from_markers_text' )
+		) {
+			// If we have a full file, this returns the text inside "# BEGIN <marker>" ... "# END <marker>"
+			$inside = Text::extract_from_markers_text( $text, Config::marker() );
+		}
+
+		// If we found a managed block, only scan **inside** it.
+		// Otherwise (likely validating a body-only string), scan the given text as-is.
+		$target = ( '' !== $inside ) ? $inside : $text;
+
+		$lines = explode( "\n", Text::normalize_lf( $target, false ) );
+		foreach ( $lines as $i => $line ) {
+			if ( $this->is_forbidden_handler_line( $line ) ) {
+				$this->errors[] = 'Forbidden PHP handler directive at line ' . ( $i + 1 ) . '.';
 			}
 		}
 	}
