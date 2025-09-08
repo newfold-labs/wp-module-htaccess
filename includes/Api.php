@@ -64,11 +64,15 @@ class Api {
 	public static function set_manager( Manager $manager ) {
 		self::$manager = $manager;
 
-		// Persist any fragments captured before the manager was available.
-		if ( self::$drain_needed ) {
-			self::flush_early_fragments_to_manager();
-			self::$drain_needed = false;
+		$option_key = Options::get_option_name( 'early_fragments' );
+		$fragments  = get_site_option( $option_key, array() );
+
+		if ( empty( $fragments ) || ! is_array( $fragments ) ) {
+			return;
 		}
+
+		// Persist any fragments captured before the manager was available.
+		self::flush_early_fragments_to_manager( $fragments );
 	}
 
 	/**
@@ -202,17 +206,14 @@ class Api {
 	/**
 	 * Persist any fragments captured before the manager was available.
 	 *
+	 * @since 1.0.0
+	 *
+	 * @param mixed $fragments Array of Fragment instances.
+	 *
 	 * @return void
 	 */
-	private static function flush_early_fragments_to_manager() {
+	private static function flush_early_fragments_to_manager( $fragments ) {
 		if ( ! ( self::$manager instanceof Manager ) ) {
-			return;
-		}
-
-		$option_key = Options::get_option_name( 'early_fragments' );
-		$fragments  = get_site_option( $option_key, array() );
-
-		if ( empty( $fragments ) || ! is_array( $fragments ) ) {
 			return;
 		}
 
