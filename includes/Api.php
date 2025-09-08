@@ -32,6 +32,13 @@ class Api {
 	protected static $manager = null;
 
 	/**
+	 * Tracks whether an apply has been requested while the manager was unavailable.
+	 *
+	 * @var bool
+	 */
+	private static $drain_needed = false;
+
+	/**
 	 * Set the shared registry (called by the module during boot).
 	 *
 	 * @since 1.0.0
@@ -46,6 +53,9 @@ class Api {
 	/**
 	 * Set the manager reference (called by the module during boot).
 	 *
+	 * When a manager is set, any fragments registered before boot are
+	 * flushed from the early-fragment option into persistent state.
+	 *
 	 * @since 1.0.0
 	 *
 	 * @param Manager $manager Manager instance.
@@ -53,6 +63,12 @@ class Api {
 	 */
 	public static function set_manager( Manager $manager ) {
 		self::$manager = $manager;
+
+		// Persist any fragments captured before the manager was available.
+		if ( self::$drain_needed ) {
+			self::flush_early_fragments_to_manager();
+			self::$drain_needed = false;
+		}
 	}
 
 	/**
@@ -79,19 +95,26 @@ class Api {
 	 * @return void
 	 */
 	public static function register( Fragment $fragment, $apply = true ) {
+		$apply = (bool) $apply;
+
 		self::registry()->register( $fragment );
+
+		$reason_label = self::fragment_reason_label( $fragment );
 
 		$changed = false;
 		if ( self::$manager instanceof Manager ) {
 			$changed = (bool) self::$manager->persist_fragment_state( $fragment );
 		} else {
-			set_site_transient( 'nfd_htaccess_persist_needed', 1, 5 * MINUTE_IN_SECONDS );
+			// No manager yet: stash the fragment and mark that persistence/update is needed.
+			self::stash_early_fragment( $fragment );
+			self::$drain_needed = true;
 		}
 
-		if ( true === $apply && $changed ) {
-			self::queue_apply( 'register:' . $fragment->id() );
+		if ( $apply && ( $changed || ! ( self::$manager instanceof Manager ) ) ) {
+			self::queue_apply( 'register:' . $reason_label );
 		}
 	}
+
 
 	/**
 	 * Unregister a fragment by ID and queue an apply.
@@ -103,19 +126,25 @@ class Api {
 	 * @return void
 	 */
 	public static function unregister( $id, $apply = true ) {
-		self::registry()->unregister( (string) $id );
+		$apply = (bool) $apply;
+		$id    = (string) $id;
+
+		self::registry()->unregister( $id );
 
 		$changed = false;
 		if ( self::$manager instanceof Manager ) {
-			$changed = (bool) self::$manager->remove_persisted_fragment( (string) $id );
+			$changed = (bool) self::$manager->remove_persisted_fragment( $id );
 		} else {
-			set_site_transient( 'nfd_htaccess_persist_needed', 1, 5 * MINUTE_IN_SECONDS );
+			// Remove any matching early-stashed fragment.
+			self::unstash_early_fragment_by_id( $id );
+			self::$drain_needed = true;
 		}
 
-		if ( true === $apply && $changed ) {
-			self::queue_apply( 'unregister:' . (string) $id );
+		if ( $apply && ( $changed || ! ( self::$manager instanceof Manager ) ) ) {
+			self::queue_apply( 'unregister:' . $id );
 		}
 	}
+
 
 	/**
 	 * Return enabled fragments sorted by priority for a given context.
@@ -148,6 +177,115 @@ class Api {
 			'at'     => time(),
 			'reason' => (string) $reason,
 		);
-		set_site_transient( 'nfd_htaccess_needs_update', $payload, 5 * MINUTE_IN_SECONDS );
+		set_site_transient( Options::get_option_name( 'needs_update' ), $payload, 5 * MINUTE_IN_SECONDS );
+	}
+
+	/**
+	 * Get a human-readable label for a fragment (for logging).
+	 *
+	 * @since 1.0.0
+	 *
+	 * @param mixed $fragment Fragment instance or ID.
+	 * @return string
+	 */
+	private static function fragment_reason_label( $fragment ) {
+		if ( $fragment instanceof Fragment && method_exists( $fragment, 'id' ) ) {
+			$id = (string) $fragment->id();
+			if ( '' !== $id ) {
+				return $id;
+			}
+		}
+		// Fallback to class name.
+		return is_object( $fragment ) ? get_class( $fragment ) : 'unknown';
+	}
+
+	/**
+	 * Persist any fragments captured before the manager was available.
+	 *
+	 * @return void
+	 */
+	private static function flush_early_fragments_to_manager() {
+		if ( ! ( self::$manager instanceof Manager ) ) {
+			return;
+		}
+
+		$option_key = Options::get_option_name( 'early_fragments' );
+		$fragments  = get_site_option( $option_key, array() );
+
+		if ( empty( $fragments ) || ! is_array( $fragments ) ) {
+			return;
+		}
+
+		$changed_any = false;
+
+		foreach ( $fragments as $fragment ) {
+			if ( $fragment instanceof Fragment ) {
+				try {
+					$changed_any = self::$manager->persist_fragment_state( $fragment ) || $changed_any;
+				} catch ( \Throwable $e ) {
+					// Keep going; one bad fragment shouldn't block the rest.
+				}
+			}
+		}
+
+		// Clear the stash once processed.
+		delete_site_option( $option_key );
+
+		// If anything changed, make sure we run a canonical apply.
+		if ( $changed_any ) {
+			self::queue_apply( 'boot:early-fragments' );
+		}
+	}
+
+	/**
+	 * Stash a fragment in a site option until the manager is available.
+	 *
+	 * @param Fragment $fragment Fragment to stash.
+	 * @return void
+	 */
+	private static function stash_early_fragment( Fragment $fragment ) {
+		$option_key = Options::get_option_name( 'early_fragments' );
+		$fragments  = get_site_option( $option_key, array() );
+
+		if ( ! is_array( $fragments ) ) {
+			$fragments = array();
+		}
+
+		$fragments[] = $fragment;
+
+		update_site_option( $option_key, $fragments );
+	}
+
+	/**
+	 * Remove a stashed fragment (if present) by its ID.
+	 *
+	 * @param string $id Fragment ID.
+	 * @return void
+	 */
+	private static function unstash_early_fragment_by_id( $id ) {
+		$option_key = Options::get_option_name( 'early_fragments' );
+		$fragments  = get_site_option( $option_key, array() );
+
+		if ( empty( $fragments ) || ! is_array( $fragments ) ) {
+			return;
+		}
+
+		$filtered = array();
+		foreach ( $fragments as $fragment ) {
+			if ( $fragment instanceof Fragment && method_exists( $fragment, 'id' ) ) {
+				if ( (string) $fragment->id() === $id ) {
+					// Skip (remove) this one.
+					continue;
+				}
+			}
+			$filtered[] = $fragment;
+		}
+
+		// Update or delete based on remaining count.
+		if ( empty( $filtered ) ) {
+			delete_site_option( $option_key );
+		} else {
+			update_site_option( $option_key, $filtered );
+		}
 	}
 }

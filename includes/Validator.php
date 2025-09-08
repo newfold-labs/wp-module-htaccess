@@ -49,7 +49,7 @@ class Validator {
 	 *                                       (e.g., array( 'WordPress', 'NFD Skip 404 Handling for Static Files' )).
 	 * @return bool True if valid, false if errors found.
 	 */
-	public function is_valid( $text, $exclusive_block_ids = null ) {
+	public function is_valid( $text, $exclusive_block_ids = array() ) {
 		$this->reset();
 
 		$text  = (string) $text;
@@ -60,8 +60,8 @@ class Validator {
 		$this->check_rewrite_flag_brackets( $lines );
 		$this->check_forbidden_handlers( $lines );
 
-		if ( is_array( $exclusive_block_ids ) && ! empty( $exclusive_block_ids ) ) {
-			$this->check_duplicate_exclusive_blocks( $text, $exclusive_block_ids );
+		if ( ! empty( $exclusive_block_ids ) ) {
+			$this->check_duplicate_exclusive_blocks( $text, (array) $exclusive_block_ids );
 		}
 
 		return empty( $this->errors );
@@ -93,20 +93,22 @@ class Validator {
 	 * @return string Remediated text.
 	 */
 	public function remediate( $text ) {
-		$lines = explode( "\n", (string) $text );
+		$lines = Text::normalize_lf( (string) $text, false );
+		$lines = explode( "\n", $text );
 		$out   = array();
 
 		foreach ( $lines as $line ) {
-			$original = $line;
-
 			// Remove forbidden handlers entirely.
 			if ( $this->is_forbidden_handler_line( $line ) ) {
 				continue;
 			}
 
-			// Fix common accidental ']]' in rewrite flags.
+			// Fix accidental ']]' in rewrite flags.
 			if ( preg_match( '/\[[^\]]*\]\]/', $line ) ) {
-				$line = preg_replace( '/\]\](\s|$)/', ']' . '$1', $line );
+				$fixed = preg_replace( '/\]\](\s|$)/', ']$1', $line );
+				if ( null !== $fixed ) {
+					$line = $fixed;
+				}
 			}
 
 			// Trim trailing spaces/tabs.
@@ -118,16 +120,14 @@ class Validator {
 		$result = implode( "\n", $out );
 
 		// Normalize double blank lines to a single blank line.
-		$result = preg_replace( "/\n{3,}/", "\n\n", $result );
+		$result = Text::collapse_excess_blanks( $result );
 
 		// Ensure single trailing newline.
-		$result = rtrim( $result, "\r\n" ) . "\n";
-
-		return $result;
+		return Text::ensure_single_trailing_newline( $result );
 	}
 
 	/**
-	 * Check matching count of <IfModule ...> and </IfModule>.
+	 * Check matching of <IfModule NAME> ... </IfModule> with proper pairing.
 	 *
 	 * @since 1.0.0
 	 *
@@ -135,25 +135,33 @@ class Validator {
 	 * @return void
 	 */
 	protected function check_ifmodule_balance( $lines ) {
-		$open  = 0;
-		$close = 0;
+		$stack = array();
 
 		foreach ( $lines as $i => $line ) {
-			if ( preg_match( '/^\s*<IfModule\b/i', $line ) ) {
-				++$open;
+			if ( preg_match( '/^\s*<IfModule\b([^>]*)>/i', $line, $m ) ) {
+				// Extract the module token (first non-space within the tag).
+				$token = trim( (string) $m[1] );
+				// Normalize spacing: "<IfModule  mod_x.c  >" -> "mod_x.c"
+				$token   = preg_replace( '/\s+/', ' ', $token );
+				$token   = trim( $token, " \t\r\n>/" );
+				$stack[] = '' === $token ? '(unknown)' : $token;
+				continue;
 			}
+
 			if ( preg_match( '/^\s*<\/IfModule>\s*$/i', $line ) ) {
-				++$close;
-				if ( $close > $open ) {
+				if ( empty( $stack ) ) {
 					$this->errors[] = 'Unmatched </IfModule> at line ' . ( $i + 1 ) . '.';
+				} else {
+					array_pop( $stack );
 				}
 			}
 		}
 
-		if ( $open !== $close ) {
-			$this->errors[] = 'IfModule imbalance detected: opens=' . $open . ', closes=' . $close . '.';
+		if ( ! empty( $stack ) ) {
+			$this->errors[] = 'Unclosed <IfModule> block(s): ' . implode( ', ', $stack ) . '.';
 		}
 	}
+
 
 	/**
 	 * Check BEGIN/END marker balance by block label.
@@ -241,9 +249,8 @@ class Validator {
 	protected function is_forbidden_handler_line( $line ) {
 		$line = ltrim( (string) $line );
 
-		// Common Apache handler directives that are risky in .htaccess for managed environments.
-		if ( preg_match( '/^(AddHandler|SetHandler)\b/i', $line ) ) {
-			// Specifically target PHP-related handlers.
+		// Disallow common ways to route PHP at the .htaccess level.
+		if ( preg_match( '/^(AddHandler|SetHandler|AddType)\b/i', $line ) ) {
 			if ( preg_match( '/php|application\/x-httpd-php/i', $line ) ) {
 				return true;
 			}
@@ -251,6 +258,7 @@ class Validator {
 
 		return false;
 	}
+
 
 	/**
 	 * Check duplicates for exclusive blocks by label using markers.
