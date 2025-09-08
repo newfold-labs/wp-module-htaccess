@@ -104,7 +104,6 @@ class Api {
 		} else {
 			// No manager yet: stash the fragment and mark that persistence/update is needed.
 			self::stash_early_fragment( $fragment );
-			self::$drain_needed = true;
 		}
 
 		if ( $apply && ( $changed || ! ( self::$manager instanceof Manager ) ) ) {
@@ -134,7 +133,6 @@ class Api {
 		} else {
 			// Remove any matching early-stashed fragment.
 			self::unstash_early_fragment_by_id( $id );
-			self::$drain_needed = true;
 		}
 
 		if ( $apply && ( $changed || ! ( self::$manager instanceof Manager ) ) ) {
