@@ -24,5 +24,11 @@
 | 16 | Non-remediable bad rule | `.htaccess` has unfixable bad rule causing 500 | Run scan | Backup restored, site recovers |
 | 17 | Missing NFD block | Registry has rules, `.htaccess` block missing | Trigger `admin_init` | NFD block re-created and rules added |
 | 18 | File permission error | `.htaccess` not writable | Enable a toggle | Error logged and shown in UI, registry unchanged |
-| **E. WP-CLI Tests** |
-| 19 | Test WP-CLI | Plugin active | Run CLI commands (add/remove/list/sync) | CLI behaves consistently with UI (registry + `.htaccess` update correctly) |
+| **E. WP-CLI Commands** |
+| 19 | `wp newfold htaccess status` | Plugin active | Run `wp newfold htaccess status` | Outputs combined `diagnose` + `scan`. Shows file validity, HTTP reachability, and NFD block status. |
+| 20 | `wp newfold htaccess diagnose` | Plugin active | Run `wp newfold htaccess diagnose` | Reports `file_valid`, `http_status`, and `reachable`. Warns on file issues. |
+| 21 | `wp newfold htaccess scan` | Plugin active | Run `wp newfold htaccess scan` | Reports NFD block status, current/expected checksums, and if remediation is possible. |
+| 22 | `wp newfold htaccess apply --version=1.0.0` | Plugin active | Run `wp newfold htaccess apply` | Safely writes NFD block; success message if applied or unchanged. |
+| 23 | `wp newfold htaccess remediate --version=1.0.0` | Plugin active, block drifted | Run `wp newfold htaccess remediate` | Applies remediation if drift detected; otherwise reports “No remediation needed.” |
+| 24 | `wp newfold htaccess restore --version=1.0.0` | Backup exists | Run `wp newfold htaccess restore` | Restores latest full backup, validates file, re-applies NFD block. Reports restored backup and remediation status. |
+| 25 | `wp newfold htaccess list_backups` | Backups exist | Run `wp newfold htaccess list_backups` | Lists all available `.htaccess` backups, or reports “No backups found.” |
