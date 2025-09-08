@@ -32,13 +32,6 @@ class Api {
 	protected static $manager = null;
 
 	/**
-	 * Tracks whether an apply has been requested while the manager was unavailable.
-	 *
-	 * @var bool
-	 */
-	private static $drain_needed = false;
-
-	/**
 	 * Set the shared registry (called by the module during boot).
 	 *
 	 * @since 1.0.0
