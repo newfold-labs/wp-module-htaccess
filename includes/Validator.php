@@ -288,11 +288,13 @@ class Validator {
 			$inside = Text::extract_from_markers_text( $text, Config::marker() );
 		}
 
+		if ( '' === $inside ) {
+			return;
+		}
+
 		// If we found a managed block, only scan **inside** it.
 		// Otherwise (likely validating a body-only string), scan the given text as-is.
-		$target = ( '' !== $inside ) ? $inside : $text;
-
-		$lines = explode( "\n", Text::normalize_lf( $target, false ) );
+		$lines = explode( "\n", Text::normalize_lf( $inside, false ) );
 		foreach ( $lines as $i => $line ) {
 			if ( $this->is_forbidden_handler_line( $line ) ) {
 				$this->errors[] = 'Forbidden PHP handler directive at line ' . ( $i + 1 ) . '.';

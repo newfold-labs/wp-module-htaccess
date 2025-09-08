@@ -32,13 +32,6 @@ class Api {
 	protected static $manager = null;
 
 	/**
-	 * Tracks whether an apply has been requested while the manager was unavailable.
-	 *
-	 * @var bool
-	 */
-	private static $drain_needed = false;
-
-	/**
 	 * Set the shared registry (called by the module during boot).
 	 *
 	 * @since 1.0.0
@@ -64,11 +57,15 @@ class Api {
 	public static function set_manager( Manager $manager ) {
 		self::$manager = $manager;
 
-		// Persist any fragments captured before the manager was available.
-		if ( self::$drain_needed ) {
-			self::flush_early_fragments_to_manager();
-			self::$drain_needed = false;
+		$option_key = Options::get_option_name( 'early_fragments' );
+		$fragments  = get_site_option( $option_key, array() );
+
+		if ( empty( $fragments ) || ! is_array( $fragments ) ) {
+			return;
 		}
+
+		// Persist any fragments captured before the manager was available.
+		self::flush_early_fragments_to_manager( $fragments );
 	}
 
 	/**
@@ -107,7 +104,6 @@ class Api {
 		} else {
 			// No manager yet: stash the fragment and mark that persistence/update is needed.
 			self::stash_early_fragment( $fragment );
-			self::$drain_needed = true;
 		}
 
 		if ( $apply && ( $changed || ! ( self::$manager instanceof Manager ) ) ) {
@@ -137,7 +133,6 @@ class Api {
 		} else {
 			// Remove any matching early-stashed fragment.
 			self::unstash_early_fragment_by_id( $id );
-			self::$drain_needed = true;
 		}
 
 		if ( $apply && ( $changed || ! ( self::$manager instanceof Manager ) ) ) {
@@ -202,17 +197,14 @@ class Api {
 	/**
 	 * Persist any fragments captured before the manager was available.
 	 *
+	 * @since 1.0.0
+	 *
+	 * @param mixed $fragments Array of Fragment instances.
+	 *
 	 * @return void
 	 */
-	private static function flush_early_fragments_to_manager() {
+	private static function flush_early_fragments_to_manager( $fragments ) {
 		if ( ! ( self::$manager instanceof Manager ) ) {
-			return;
-		}
-
-		$option_key = Options::get_option_name( 'early_fragments' );
-		$fragments  = get_site_option( $option_key, array() );
-
-		if ( empty( $fragments ) || ! is_array( $fragments ) ) {
 			return;
 		}
 
