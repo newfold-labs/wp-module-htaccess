@@ -223,22 +223,6 @@ class Validator {
 	}
 
 	/**
-	 * Check for forbidden PHP handler directives that can conflict with host config.
-	 *
-	 * @since 1.0.0
-	 *
-	 * @param string[] $lines Lines to inspect.
-	 * @return void
-	 */
-	protected function check_forbidden_handlers( $lines ) {
-		foreach ( $lines as $i => $line ) {
-			if ( $this->is_forbidden_handler_line( $line ) ) {
-				$this->errors[] = 'Forbidden PHP handler directive at line ' . ( $i + 1 ) . '.';
-			}
-		}
-	}
-
-	/**
 	 * Determine if a line is a forbidden handler directive.
 	 *
 	 * @since 1.0.0
