@@ -221,6 +221,7 @@ class Api {
 		}
 
 		// Clear the stash once processed.
+		$option_key = Options::get_option_name( 'early_fragments' );
 		delete_site_option( $option_key );
 
 		// If anything changed, make sure we run a canonical apply.
