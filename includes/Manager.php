@@ -704,7 +704,10 @@ class Manager {
 	 * @return string[]
 	 */
 	protected function collect_legacy_marker_labels( $fragments, $context ) {
-		$labels = array();
+		// Always include the old legacy label.
+		$labels = array(
+			'Newfold Headers' => true,
+		);
 
 		foreach ( (array) $fragments as $f ) {
 			if ( ! $f instanceof Fragment ) {
