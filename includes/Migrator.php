@@ -24,8 +24,8 @@ class Migrator {
 		// Normalize to LF, remove BOM, normalize NBSPs to spaces.
 		$buf = (string) $text;
 		$buf = str_replace( array( "\r\n", "\r" ), "\n", $buf );
-		$buf = ltrim( $buf, "\xEF\xBB\xBF" );          // UTF-8 BOM
-		$buf = str_replace( "\xC2\xA0", ' ', $buf );    // NBSP -> space
+		$buf = ltrim( $buf, "\xEF\xBB\xBF" );        // UTF-8 BOM
+		$buf = str_replace( "\xC2\xA0", ' ', $buf );  // NBSP -> space
 
 		// Nothing to do?
 		if ( '' === $buf || empty( $legacy_labels ) || ! is_array( $legacy_labels ) ) {
@@ -35,57 +35,84 @@ class Migrator {
 			);
 		}
 
-		// De-dupe/trim and never target our managed marker.
+		// Protect the managed wrapper block (Config::marker())
+		$managed_label   = Config::marker(); // e.g., 'NFD Htaccess'
+		$managed_pattern = '~^[ \t]*#\s*BEGIN\s+' . preg_quote( $managed_label, '~' ) . '\s*$'
+		. '(?s:.*?)'
+		. '^[ \t]*#\s*END\s+' . preg_quote( $managed_label, '~' ) . '\s*$~mu';
+
+		$managed_start = 0;
+		$managed_len   = 0;
+		$managed_body  = '';
+
+		if ( preg_match( $managed_pattern, $buf, $m, PREG_OFFSET_CAPTURE ) ) {
+			$managed_start = $m[0][1];
+			$managed_len   = strlen( $m[0][0] );
+			$managed_body  = $m[0][0];
+		}
+
+		if ( 0 < $managed_len ) {
+			$head = substr( $buf, 0, $managed_start );
+			$tail = substr( $buf, $managed_start + $managed_len );
+		} else {
+			// No managed block found; operate on the whole buffer as "head".
+			$head = $buf;
+			$tail = '';
+		}
+
+		// Build the label set, excluding empties and our managed marker
 		$labels = array();
 		foreach ( $legacy_labels as $label ) {
 			$l = trim( (string) $label );
 			if ( '' === $l ) {
 				continue;
 			}
-			if ( 0 === strcasecmp( $l, Config::marker() ) ) {
-				continue;
+			if ( 0 === strcasecmp( $l, $managed_label ) ) {
+				continue; // never target our managed wrapper
 			}
 			$labels[ $l ] = true;
 		}
 		if ( empty( $labels ) ) {
+			$out = ( 0 < $managed_len ) ? ( $head . $managed_body . $tail ) : $head;
 			return array(
-				'text'    => $this->postprocess( $buf ),
+				'text'    => $this->postprocess( $out ),
 				'removed' => 0,
 			);
 		}
 
+		// Remove legacy blocks ONLY in head/tail (not inside managed)
 		$removed = 0;
 
 		foreach ( array_keys( $labels ) as $label ) {
-			$quoted = preg_quote( $label, '~' );
-
-			/**
-			 * More-forgiving marker remover:
-			 * - ^[ \t]*#\s*BEGIN <label>\s*$   (BEGIN line, multiline)
-			 * - (.*?)                           (lazy body, including newlines)
-			 * - ^[ \t]*#\s*END <label>\s*$     (END line, multiline)
-			 *
-			 * Flags:
-			 * - m: ^ and $ are per-line
-			 * - s: dot also matches \n
-			 * - u: unicode-safe
-			 */
+			$quoted  = preg_quote( $label, '~' );
 			$pattern = '~^[ \t]*#\s*BEGIN\s+' . $quoted . '\s*$'
-				. '(.*?)'
-				. '^[ \t]*#\s*END\s+' . $quoted . '\s*$~msu';
+				. '(?s:.*?)'
+				. '^[ \t]*#\s*END\s+' . $quoted . '\s*$~mu';
 
-			$buf = preg_replace( $pattern, '', $buf, -1, $count );
-
-			if ( null === $buf ) {
-				// Regex engine error; skip this label safely.
-				$buf = (string) $text;
-				continue;
+			// Head
+			$next_head = preg_replace( $pattern, '', $head, -1, $count_head );
+			if ( null !== $next_head && 0 < $count_head ) {
+				$head     = $next_head;
+				$removed += (int) $count_head;
 			}
-			$removed += (int) $count;
+
+			// Tail
+			if ( '' !== $tail ) {
+				$next_tail = preg_replace( $pattern, '', $tail, -1, $count_tail );
+				if ( null !== $next_tail && 0 < $count_tail ) {
+					$tail     = $next_tail;
+					$removed += (int) $count_tail;
+				}
+			}
 		}
 
+		// Reassemble with the managed region untouched
+		$out = ( 0 < $managed_len )
+		? ( $head . $managed_body . $tail )
+		: $head;
+
 		return array(
-			'text'    => $this->postprocess( $buf ),
+			'text'    => $this->postprocess( $out ),
 			'removed' => $removed,
 		);
 	}

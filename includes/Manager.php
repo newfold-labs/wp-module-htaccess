@@ -367,7 +367,7 @@ class Manager {
 		}
 
 		$saved = $this->load_saved_state();
-		if ( empty( $saved['body'] ) || empty( $saved['checksum'] ) ) {
+		if ( empty( $saved['checksum'] ) ) {
 			return;
 		}
 
