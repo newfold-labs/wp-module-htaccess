@@ -174,6 +174,12 @@ class Updater {
 		// Inject/replace the managed block (in-memory).
 		$final = $this->inject_or_replace_managed_block( $after_mig['text'], $lines );
 
+		// Apply fragment patches now (operate on the full file text).
+		$context   = Context::from_wp( array() );
+		$fragments = Api::registry()->enabled_fragments( $context );
+
+		$final = $this->apply_fragment_patches( $final, $fragments, $context );
+
 		// Single atomic write to disk.
 		if ( ! $this->write_file_atomic( $path, $final ) ) {
 			return false;
@@ -186,6 +192,140 @@ class Updater {
 		}
 
 		return true;
+	}
+
+	/**
+	 * Apply regex patches provided by fragments (optional patches()).
+	 *
+	 * @param string     $full_text Complete .htaccess text (LF normalized preferred).
+	 * @param Fragment[] $fragments Enabled fragments.
+	 * @param mixed      $context   Optional context.
+	 * @return string
+	 */
+	protected function apply_fragment_patches( $full_text, $fragments, $context ) {
+		$text = (string) $full_text;
+
+		// Normalize to LF so anchors behave.
+		$text = \NewfoldLabs\WP\Module\Htaccess\Text::normalize_lf( (string) $text, false );
+
+		// 2) Special-case cleanup: remove a patch block when it sits right before the WP rewrite,
+		// and replace it with exactly one newline so we don't leave an extra blank line.
+		$pattern_wp_adjacent = '~'
+		. '\n?'                                              // optional leading LF
+		. '[ \t]*#\s*NFD\s+PATCH\s+[^\n]+?\s+BEGIN\s*$'      // BEGIN line
+		. '(?s:.*?)'                                         // body (DOTALL)
+		. '^[ \t]*#\s*NFD\s+PATCH\s+[^\n]+?\s+END\s*$'       // END line
+		. '(?:\n)?'                                          // optional trailing LF
+		. '(?=[ \t]*RewriteRule\s+\.\s+/index\.php\s+\[L\]\s*$)' // must be directly before WP rule
+		. '~mu';
+
+		$text = preg_replace( $pattern_wp_adjacent, "\n", $text );
+
+		// Generic cleanup: remove any remaining NFD PATCH blocks elsewhere (eat one surrounding LF).
+		$pattern_generic = '~'
+		. '(?:\n)?'                                          // optional leading LF
+		. '^[ \t]*#\s*NFD\s+PATCH\s+[^\n]+?\s+BEGIN\s*$'
+		. '(?s:.*?)'
+		. '^[ \t]*#\s*NFD\s+PATCH\s+[^\n]+?\s+END\s*$'
+		. '(?:\n)?'                                          // optional trailing LF
+		. '~mu';
+
+		$text = preg_replace( $pattern_generic, '', $text );
+
+		// 4) Tidy spacing.
+		$text = \NewfoldLabs\WP\Module\Htaccess\Text::collapse_excess_blanks( $text );
+		// remove a single leading blank line if any
+		$text = preg_replace( '~^\h*\R~u', '', (string) $text, 1 );
+		$text = \NewfoldLabs\WP\Module\Htaccess\Text::ensure_single_trailing_newline( $text );
+
+		// Identify ranges for scoped patching (WordPress + managed).
+		$wp_begin = '~^[ \t]*#\s*BEGIN\s+WordPress\s*$~m';
+		$wp_end   = '~^[ \t]*#\s*END\s+WordPress\s*$~m';
+
+		$managed_label = Config::marker();
+		$mg_begin      = '~^[ \t]*#\s*BEGIN\s+' . preg_quote( $managed_label, '~' ) . '\s*$~m';
+		$mg_end        = '~^[ \t]*#\s*END\s+' . preg_quote( $managed_label, '~' ) . '\s*$~m';
+
+		$wp_range = null;
+		if ( preg_match( $wp_begin, $text, $m1, PREG_OFFSET_CAPTURE ) && preg_match( $wp_end, $text, $m2, PREG_OFFSET_CAPTURE ) ) {
+			$start = $m1[0][1];
+			$stop  = $m2[0][1] + strlen( $m2[0][0] );
+			if ( $stop > $start ) {
+				$wp_range = array( $start, $stop );
+			}
+		}
+
+		$mg_range = null;
+		if ( preg_match( $mg_begin, $text, $m3, PREG_OFFSET_CAPTURE ) && preg_match( $mg_end, $text, $m4, PREG_OFFSET_CAPTURE ) ) {
+			$start = $m3[0][1];
+			$stop  = $m4[0][1] + strlen( $m4[0][0] );
+			if ( $stop > $start ) {
+				$mg_range = array( $start, $stop );
+			}
+		}
+
+		// Re-apply patches from currently enabled fragments.
+		foreach ( (array) $fragments as $fragment ) {
+			if ( ! $fragment instanceof Fragment || ! method_exists( $fragment, 'patches' ) ) {
+				continue;
+			}
+
+			$patches = (array) $fragment->patches( $context );
+			if ( empty( $patches ) ) {
+				continue;
+			}
+
+			foreach ( $patches as $patch ) {
+				$scope       = isset( $patch['scope'] ) ? (string) $patch['scope'] : 'full';
+				$pattern     = isset( $patch['pattern'] ) ? (string) $patch['pattern'] : '';
+				$replacement = isset( $patch['replacement'] ) ? (string) $patch['replacement'] : '';
+				$limit       = isset( $patch['limit'] ) ? (int) $patch['limit'] : -1;
+
+				if ( '' === $pattern ) {
+					continue;
+				}
+
+				if ( 'full' === $scope ) {
+					$patched = preg_replace( $pattern, $replacement, $text, $limit );
+					if ( null !== $patched ) {
+						$text = $patched;
+					}
+					continue;
+				}
+
+				$range = null;
+				if ( 'wp_block' === $scope && null !== $wp_range ) {
+					$range = $wp_range;
+				} elseif ( 'managed_block' === $scope && null !== $mg_range ) {
+					$range = $mg_range;
+				}
+
+				if ( null === $range ) {
+					continue;
+				}
+
+				list( $seg_start, $seg_stop ) = $range;
+				$segment                      = substr( $text, $seg_start, $seg_stop - $seg_start );
+				$patched                      = preg_replace( $pattern, $replacement, $segment, $limit );
+				if ( null === $patched ) {
+					continue;
+				}
+
+				$text = substr( $text, 0, $seg_start ) . $patched . substr( $text, $seg_stop );
+
+				// Adjust ranges if sizes changed.
+				$delta = strlen( $patched ) - strlen( $segment );
+				if ( 'wp_block' === $scope && null !== $wp_range ) {
+					$wp_range = array( $wp_range[0], $wp_range[1] + $delta );
+				}
+				if ( 'managed_block' === $scope && null !== $mg_range ) {
+					$mg_range = array( $mg_range[0], $mg_range[1] + $delta );
+				}
+			}
+		}
+		$text = Text::collapse_excess_blanks( $text );
+		$text = Text::ensure_single_trailing_newline( $text );
+		return $text;
 	}
 
 	/**
