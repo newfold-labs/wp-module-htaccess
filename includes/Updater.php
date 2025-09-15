@@ -65,6 +65,11 @@ class Updater {
 
 		$this->ensure_wp_file_helpers();
 
+		// If the .htaccess file is missing, do nothing.
+		if ( false === file_exists( $path ) ) {
+			return false;
+		}
+
 		// Normalize incoming body and compute checksum.
 		$body_norm   = Text::normalize_lf( (string) $body, true );
 		$body_hash   = hash( 'sha256', $body_norm );
@@ -321,15 +326,6 @@ class Updater {
 		return is_string( $buf ) ? $buf : '';
 	}
 
-	/**
-	 * Write file contents atomically where possible.
-	 *
-	 * @since 1.0.0
-	 *
-	 * @param string $path Destination path.
-	 * @param string $data Contents to write.
-	 * @return bool True on success.
-	 */
 	/**
 	 * Write file contents atomically where possible.
 	 *
