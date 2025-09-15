@@ -106,7 +106,7 @@ class Updater {
 			$has_legacy = ( ! empty( $probe['removed'] ) && $probe['removed'] > 0 );
 		}
 
-		// ---------- EMPTY BODY: delete the block instead of writing a blank block ----------
+		// EMPTY BODY: delete the block instead of writing a blank block
 		if ( '' === $body_norm ) {
 			// If no block and no legacy to remove, nothing to do.
 			if ( empty( $current_lines ) && ! $has_legacy ) {
@@ -146,7 +146,7 @@ class Updater {
 
 			return true;
 		}
-		// ---------- /EMPTY BODY ----------
+		// EMPTY BODY
 
 		// If body unchanged AND no legacy removals needed, no-op.
 		if ( '' !== $body_hash_current && $body_hash_current === $body_hash && ! $has_legacy ) {
