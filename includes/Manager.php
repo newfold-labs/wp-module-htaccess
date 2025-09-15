@@ -374,7 +374,7 @@ class Manager {
 		$current = $this->read_current_htaccess();
 		$context = Context::from_wp( array() );
 
-		// --- NEW: Build legacy labels from BOTH current fragments and persisted state.
+		// --- Build legacy labels from BOTH current fragments and persisted state.
 		$labels_from_frags = $this->collect_legacy_marker_labels( $this->enabled_non_wp_fragments( $context ), $context );
 		$labels_from_state = $this->collect_labels_from_saved_state( $saved );
 		$legacy_labels     = array_values( array_unique( array_merge( $labels_from_frags, $labels_from_state ) ) );

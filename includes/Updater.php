@@ -97,12 +97,6 @@ class Updater {
 			}
 		}
 
-		// Current block body hash for no-op check.
-		$body_hash_current = '';
-		if ( ! empty( $current_lines ) ) {
-			$body_hash_current = $this->compute_body_hash_from_lines( $current_lines );
-		}
-
 		// Check if any legacy blocks exist that we plan to remove.
 		$migrator   = new Migrator();
 		$has_legacy = false;
@@ -135,6 +129,12 @@ class Updater {
 					$txt = substr( $txt, 0, $start ) . substr( $txt, $stop );
 				}
 			}
+
+			// Run patch cleanup/reapply with current enabled fragments
+			$context   = Context::from_wp( array() );
+			$fragments = Api::registry()->enabled_fragments( $context );
+			$txt       = $this->apply_fragment_patches( $txt, $fragments, $context );
+
 			$txt = Text::collapse_excess_blanks( $txt );
 			$txt = Text::ensure_single_trailing_newline( $txt );
 
@@ -153,16 +153,6 @@ class Updater {
 		}
 		// EMPTY BODY
 
-		// If body unchanged AND no legacy removals needed, no-op.
-		if ( '' !== $body_hash_current && $body_hash_current === $body_hash && ! $has_legacy ) {
-			return true;
-		}
-
-		// Refresh backup before modifying.
-		if ( ! $this->refresh_single_backup( $path ) ) {
-			return false;
-		}
-
 		// Remove legacy blocks (in-memory).
 		$after_mig = $has_legacy
 		? $migrator->remove_legacy_blocks( $current_full, $legacy_labels )
@@ -179,6 +169,16 @@ class Updater {
 		$fragments = Api::registry()->enabled_fragments( $context );
 
 		$final = $this->apply_fragment_patches( $final, $fragments, $context );
+
+		// No-op if the patched result equals what's currently on disk.
+		if ( $final === $current_full ) {
+			return true;
+		}
+
+		// Refresh backup before modifying.
+		if ( ! $this->refresh_single_backup( $path ) ) {
+			return false;
+		}
 
 		// Single atomic write to disk.
 		if ( ! $this->write_file_atomic( $path, $final ) ) {
@@ -206,37 +206,50 @@ class Updater {
 		$text = (string) $full_text;
 
 		// Normalize to LF so anchors behave.
-		$text = \NewfoldLabs\WP\Module\Htaccess\Text::normalize_lf( (string) $text, false );
+		$text = Text::normalize_lf( (string) $text, false );
 
-		// 2) Special-case cleanup: remove a patch block when it sits right before the WP rewrite,
-		// and replace it with exactly one newline so we don't leave an extra blank line.
-		$pattern_wp_adjacent = '~'
-		. '\n?'                                              // optional leading LF
-		. '[ \t]*#\s*NFD\s+PATCH\s+[^\n]+?\s+BEGIN\s*$'      // BEGIN line
-		. '(?s:.*?)'                                         // body (DOTALL)
-		. '^[ \t]*#\s*NFD\s+PATCH\s+[^\n]+?\s+END\s*$'       // END line
-		. '(?:\n)?'                                          // optional trailing LF
-		. '(?=[ \t]*RewriteRule\s+\.\s+/index\.php\s+\[L\]\s*$)' // must be directly before WP rule
-		. '~mu';
+		// --- Robust, id-agnostic removal of all NFD PATCH blocks (no regex backflips) ---
+		$lines    = preg_split( '/\n/', (string) $text );
+		$out      = array();
+		$in_patch = false;
+		$removed  = 0;
 
-		$text = preg_replace( $pattern_wp_adjacent, "\n", $text );
+		for ( $i = 0, $n = count( $lines ); $i < $n; $i++ ) {
+			$line = $lines[ $i ];
 
-		// Generic cleanup: remove any remaining NFD PATCH blocks elsewhere (eat one surrounding LF).
-		$pattern_generic = '~'
-		. '(?:\n)?'                                          // optional leading LF
-		. '^[ \t]*#\s*NFD\s+PATCH\s+[^\n]+?\s+BEGIN\s*$'
-		. '(?s:.*?)'
-		. '^[ \t]*#\s*NFD\s+PATCH\s+[^\n]+?\s+END\s*$'
-		. '(?:\n)?'                                          // optional trailing LF
-		. '~mu';
+			// BEGIN marker?
+			if ( ! $in_patch && preg_match( '/^\s*#\s*NFD\s+PATCH\b.*\bBEGIN\b/i', $line ) ) {
+				// Eat a single preceding blank from the already-built output, if any.
+				if ( ! empty( $out ) && '' === trim( end( $out ) ) ) {
+					array_pop( $out );
+				}
+				$in_patch = true;
+				++$removed;
+				continue; // skip the BEGIN line
+			}
 
-		$text = preg_replace( $pattern_generic, '', $text );
+			if ( $in_patch ) {
+				// END marker? (consume it + one following blank line, if present)
+				if ( preg_match( '/^\s*#\s*NFD\s+PATCH\b.*\bEND\b/i', $line ) ) {
+					// If next line exists and is blank, skip it too.
+					if ( $i + 1 < $n && '' === trim( $lines[ $i + 1 ] ) ) {
+						++$i;
+					}
+					$in_patch = false;
+				}
+				continue; // skip any line while inside a patch block
+			}
+
+			$out[] = $line;
+		}
+
+		$text = implode( "\n", $out );
 
 		// 4) Tidy spacing.
-		$text = \NewfoldLabs\WP\Module\Htaccess\Text::collapse_excess_blanks( $text );
+		$text = Text::collapse_excess_blanks( $text );
 		// remove a single leading blank line if any
 		$text = preg_replace( '~^\h*\R~u', '', (string) $text, 1 );
-		$text = \NewfoldLabs\WP\Module\Htaccess\Text::ensure_single_trailing_newline( $text );
+		$text = Text::ensure_single_trailing_newline( $text );
 
 		// Identify ranges for scoped patching (WordPress + managed).
 		$wp_begin = '~^[ \t]*#\s*BEGIN\s+WordPress\s*$~m';
