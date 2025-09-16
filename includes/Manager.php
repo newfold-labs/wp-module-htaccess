@@ -117,8 +117,8 @@ class Manager {
 		Api::set_manager( $this );
 
 		// Reconcile persisted block vs. disk at init (queues if drift found).
-		// Runs late so that any runtime registrations on init have happened.
-		add_action( 'admin_init', array( $this, 'reconcile_saved_block' ), 1 );
+		// Admin: run after everyone else has registered fragments.
+		add_action( 'admin_init', array( $this, 'reconcile_saved_block' ), PHP_INT_MAX );
 
 		// Queue on common events that affect rewrite rules or fragments.
 		add_action( 'permalink_structure_changed', array( $this, 'queue_apply' ) );
