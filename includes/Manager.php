@@ -117,8 +117,8 @@ class Manager {
 		Api::set_manager( $this );
 
 		// Reconcile persisted block vs. disk at init (queues if drift found).
-		// Runs late so that any runtime registrations on init have happened.
-		add_action( 'admin_init', array( $this, 'reconcile_saved_block' ), 1 );
+		// Admin: run after everyone else has registered fragments.
+		add_action( 'admin_init', array( $this, 'reconcile_saved_block' ), PHP_INT_MAX );
 
 		// Queue on common events that affect rewrite rules or fragments.
 		add_action( 'permalink_structure_changed', array( $this, 'queue_apply' ) );
@@ -367,14 +367,14 @@ class Manager {
 		}
 
 		$saved = $this->load_saved_state();
-		if ( empty( $saved['body'] ) || empty( $saved['checksum'] ) ) {
+		if ( empty( $saved['checksum'] ) ) {
 			return;
 		}
 
 		$current = $this->read_current_htaccess();
 		$context = Context::from_wp( array() );
 
-		// --- NEW: Build legacy labels from BOTH current fragments and persisted state.
+		// --- Build legacy labels from BOTH current fragments and persisted state.
 		$labels_from_frags = $this->collect_legacy_marker_labels( $this->enabled_non_wp_fragments( $context ), $context );
 		$labels_from_state = $this->collect_labels_from_saved_state( $saved );
 		$legacy_labels     = array_values( array_unique( array_merge( $labels_from_frags, $labels_from_state ) ) );
@@ -402,8 +402,19 @@ class Manager {
 			$has_legacy   = ( is_array( $probe_result ) && ! empty( $probe_result['removed'] ) );
 		}
 
+		// Also detect if any currently enabled fragments (if any) want to patch.
+		$fragments         = Api::enabled_fragments( $context );
+		$needs_patch_apply = false;
+		foreach ( (array) $fragments as $frag ) {
+			if ( $frag instanceof Fragment && method_exists( $frag, 'patches' ) ) {
+				$patches = (array) $frag->patches( $context );
+				if ( ! empty( $patches ) ) { $needs_patch_apply = true;
+					break; }
+			}
+		}
+
 		// Rewrite if checksum differs OR legacy blocks are present.
-		if ( $current_hash !== (string) $saved['checksum'] || $has_legacy ) {
+		if ( $current_hash !== (string) $saved['checksum'] || $has_legacy || $needs_patch_apply ) {
 			$this->updater->apply_managed_block(
 				(string) $saved['body'],
 				(string) $saved['host'],
@@ -704,7 +715,10 @@ class Manager {
 	 * @return string[]
 	 */
 	protected function collect_legacy_marker_labels( $fragments, $context ) {
-		$labels = array();
+		// Always include the old legacy label.
+		$labels = array(
+			'Newfold Headers' => true,
+		);
 
 		foreach ( (array) $fragments as $f ) {
 			if ( ! $f instanceof Fragment ) {

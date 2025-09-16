@@ -65,6 +65,11 @@ class Updater {
 
 		$this->ensure_wp_file_helpers();
 
+		// If the .htaccess file is missing, do nothing.
+		if ( false === file_exists( $path ) ) {
+			return false;
+		}
+
 		// Normalize incoming body and compute checksum.
 		$body_norm   = Text::normalize_lf( (string) $body, true );
 		$body_hash   = hash( 'sha256', $body_norm );
@@ -92,12 +97,6 @@ class Updater {
 			}
 		}
 
-		// Current block body hash for no-op check.
-		$body_hash_current = '';
-		if ( ! empty( $current_lines ) ) {
-			$body_hash_current = $this->compute_body_hash_from_lines( $current_lines );
-		}
-
 		// Check if any legacy blocks exist that we plan to remove.
 		$migrator   = new Migrator();
 		$has_legacy = false;
@@ -106,7 +105,7 @@ class Updater {
 			$has_legacy = ( ! empty( $probe['removed'] ) && $probe['removed'] > 0 );
 		}
 
-		// ---------- EMPTY BODY: delete the block instead of writing a blank block ----------
+		// EMPTY BODY: delete the block instead of writing a blank block
 		if ( '' === $body_norm ) {
 			// If no block and no legacy to remove, nothing to do.
 			if ( empty( $current_lines ) && ! $has_legacy ) {
@@ -130,6 +129,12 @@ class Updater {
 					$txt = substr( $txt, 0, $start ) . substr( $txt, $stop );
 				}
 			}
+
+			// Run patch cleanup/reapply with current enabled fragments
+			$context   = Context::from_wp( array() );
+			$fragments = Api::registry()->enabled_fragments( $context );
+			$txt       = $this->apply_fragment_patches( $txt, $fragments, $context );
+
 			$txt = Text::collapse_excess_blanks( $txt );
 			$txt = Text::ensure_single_trailing_newline( $txt );
 
@@ -146,17 +151,7 @@ class Updater {
 
 			return true;
 		}
-		// ---------- /EMPTY BODY ----------
-
-		// If body unchanged AND no legacy removals needed, no-op.
-		if ( '' !== $body_hash_current && $body_hash_current === $body_hash && ! $has_legacy ) {
-			return true;
-		}
-
-		// Refresh backup before modifying.
-		if ( ! $this->refresh_single_backup( $path ) ) {
-			return false;
-		}
+		// EMPTY BODY
 
 		// Remove legacy blocks (in-memory).
 		$after_mig = $has_legacy
@@ -168,6 +163,46 @@ class Updater {
 
 		// Inject/replace the managed block (in-memory).
 		$final = $this->inject_or_replace_managed_block( $after_mig['text'], $lines );
+
+		// Apply fragment patches now (operate on the full file text).
+		$context   = Context::from_wp( array() );
+		$fragments = Api::registry()->enabled_fragments( $context );
+
+		$final = $this->apply_fragment_patches( $final, $fragments, $context );
+
+		// Normalize once for a clean compare
+		$final_norm   = Text::normalize_lf( (string) $final, false );
+		$current_norm = Text::normalize_lf( (string) $current_full, false );
+
+		// Reuse current STATE line (sha + applied timestamp) for the compare,
+		// so we don't rewrite just to bump the timestamp.
+		$state_re = '/^\s*#\s*STATE\s+sha256:\s*[0-9a-f]{64}\s+applied:\s+.+$/mi';
+
+		$current_state = null;
+		if ( preg_match( $state_re, $current_norm, $m ) ) {
+			$current_state = $m[0];
+		}
+
+		$final_for_compare = $final_norm;
+		if ( null !== $current_state ) {
+			// Replace the STATE line in the candidate with the current file's STATE line.
+			$final_for_compare = preg_replace( $state_re, $current_state, $final_for_compare, 1 );
+		}
+
+		// If nothing really changed (ignoring timestamp), no-op.
+		if ( $final_for_compare === $current_norm ) {
+			return true;
+		}
+
+		// No-op if the patched result equals what's currently on disk.
+		if ( $final === $current_full ) {
+			return true;
+		}
+
+		// Refresh backup before modifying.
+		if ( ! $this->refresh_single_backup( $path ) ) {
+			return false;
+		}
 
 		// Single atomic write to disk.
 		if ( ! $this->write_file_atomic( $path, $final ) ) {
@@ -181,6 +216,153 @@ class Updater {
 		}
 
 		return true;
+	}
+
+	/**
+	 * Apply regex patches provided by fragments (optional patches()).
+	 *
+	 * @param string     $full_text Complete .htaccess text (LF normalized preferred).
+	 * @param Fragment[] $fragments Enabled fragments.
+	 * @param mixed      $context   Optional context.
+	 * @return string
+	 */
+	protected function apply_fragment_patches( $full_text, $fragments, $context ) {
+		$text = (string) $full_text;
+
+		// Normalize to LF so anchors behave.
+		$text = Text::normalize_lf( (string) $text, false );
+
+		// --- Robust, id-agnostic removal of all NFD PATCH blocks (no regex backflips) ---
+		$lines    = preg_split( '/\n/', (string) $text );
+		$out      = array();
+		$in_patch = false;
+		$removed  = 0;
+
+		for ( $i = 0, $n = count( $lines ); $i < $n; $i++ ) {
+			$line = $lines[ $i ];
+
+			// BEGIN marker?
+			if ( ! $in_patch && preg_match( '/^\s*#\s*NFD\s+PATCH\b.*\bBEGIN\b/i', $line ) ) {
+				// Eat a single preceding blank from the already-built output, if any.
+				if ( ! empty( $out ) && '' === trim( end( $out ) ) ) {
+					array_pop( $out );
+				}
+				$in_patch = true;
+				++$removed;
+				continue; // skip the BEGIN line
+			}
+
+			if ( $in_patch ) {
+				// END marker? (consume it + one following blank line, if present)
+				if ( preg_match( '/^\s*#\s*NFD\s+PATCH\b.*\bEND\b/i', $line ) ) {
+					// If next line exists and is blank, skip it too.
+					if ( $i + 1 < $n && '' === trim( $lines[ $i + 1 ] ) ) {
+						++$i;
+					}
+					$in_patch = false;
+				}
+				continue; // skip any line while inside a patch block
+			}
+
+			$out[] = $line;
+		}
+
+		$text = implode( "\n", $out );
+
+		// 4) Tidy spacing.
+		$text = Text::collapse_excess_blanks( $text );
+		// remove a single leading blank line if any
+		$text = preg_replace( '~^\h*\R~u', '', (string) $text, 1 );
+		$text = Text::ensure_single_trailing_newline( $text );
+
+		// Identify ranges for scoped patching (WordPress + managed).
+		$wp_begin = '~^[ \t]*#\s*BEGIN\s+WordPress\s*$~m';
+		$wp_end   = '~^[ \t]*#\s*END\s+WordPress\s*$~m';
+
+		$managed_label = Config::marker();
+		$mg_begin      = '~^[ \t]*#\s*BEGIN\s+' . preg_quote( $managed_label, '~' ) . '\s*$~m';
+		$mg_end        = '~^[ \t]*#\s*END\s+' . preg_quote( $managed_label, '~' ) . '\s*$~m';
+
+		$wp_range = null;
+		if ( preg_match( $wp_begin, $text, $m1, PREG_OFFSET_CAPTURE ) && preg_match( $wp_end, $text, $m2, PREG_OFFSET_CAPTURE ) ) {
+			$start = $m1[0][1];
+			$stop  = $m2[0][1] + strlen( $m2[0][0] );
+			if ( $stop > $start ) {
+				$wp_range = array( $start, $stop );
+			}
+		}
+
+		$mg_range = null;
+		if ( preg_match( $mg_begin, $text, $m3, PREG_OFFSET_CAPTURE ) && preg_match( $mg_end, $text, $m4, PREG_OFFSET_CAPTURE ) ) {
+			$start = $m3[0][1];
+			$stop  = $m4[0][1] + strlen( $m4[0][0] );
+			if ( $stop > $start ) {
+				$mg_range = array( $start, $stop );
+			}
+		}
+
+		// Re-apply patches from currently enabled fragments.
+		foreach ( (array) $fragments as $fragment ) {
+			if ( ! $fragment instanceof Fragment || ! method_exists( $fragment, 'patches' ) ) {
+				continue;
+			}
+
+			$patches = (array) $fragment->patches( $context );
+			if ( empty( $patches ) ) {
+				continue;
+			}
+
+			foreach ( $patches as $patch ) {
+				$scope       = isset( $patch['scope'] ) ? (string) $patch['scope'] : 'full';
+				$pattern     = isset( $patch['pattern'] ) ? (string) $patch['pattern'] : '';
+				$replacement = isset( $patch['replacement'] ) ? (string) $patch['replacement'] : '';
+				$limit       = isset( $patch['limit'] ) ? (int) $patch['limit'] : -1;
+
+				if ( '' === $pattern ) {
+					continue;
+				}
+
+				if ( 'full' === $scope ) {
+					$patched = preg_replace( $pattern, $replacement, $text, $limit );
+					if ( null !== $patched ) {
+						$text = $patched;
+					}
+					continue;
+				}
+
+				$range = null;
+				if ( 'wp_block' === $scope && null !== $wp_range ) {
+					$range = $wp_range;
+				} elseif ( 'managed_block' === $scope && null !== $mg_range ) {
+					$range = $mg_range;
+				}
+
+				if ( null === $range ) {
+					continue;
+				}
+
+				list( $seg_start, $seg_stop ) = $range;
+				$segment                      = substr( $text, $seg_start, $seg_stop - $seg_start );
+				$patched                      = preg_replace( $pattern, $replacement, $segment, $limit );
+				if ( null === $patched ) {
+					continue;
+				}
+
+				$text = substr( $text, 0, $seg_start ) . $patched . substr( $text, $seg_stop );
+
+				// Adjust ranges if sizes changed.
+				$delta = strlen( $patched ) - strlen( $segment );
+				if ( 'wp_block' === $scope && null !== $wp_range ) {
+					$wp_range = array( $wp_range[0], $wp_range[1] + $delta );
+				}
+				if ( 'managed_block' === $scope && null !== $mg_range ) {
+					$mg_range = array( $mg_range[0], $mg_range[1] + $delta );
+				}
+			}
+		}
+		$text = Text::collapse_excess_blanks( $text );
+		$text = Text::ensure_single_trailing_newline( $text );
+		return $text;
 	}
 
 	/**
@@ -321,15 +503,6 @@ class Updater {
 		return is_string( $buf ) ? $buf : '';
 	}
 
-	/**
-	 * Write file contents atomically where possible.
-	 *
-	 * @since 1.0.0
-	 *
-	 * @param string $path Destination path.
-	 * @param string $data Contents to write.
-	 * @return bool True on success.
-	 */
 	/**
 	 * Write file contents atomically where possible.
 	 *

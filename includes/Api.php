@@ -94,23 +94,25 @@ class Api {
 	public static function register( Fragment $fragment, $apply = true ) {
 		$apply = (bool) $apply;
 
-		self::registry()->register( $fragment );
-
 		$reason_label = self::fragment_reason_label( $fragment );
 
 		$changed = false;
 		if ( self::$manager instanceof Manager ) {
+			self::registry()->register( $fragment );
 			$changed = (bool) self::$manager->persist_fragment_state( $fragment );
 		} else {
 			// No manager yet: stash the fragment and mark that persistence/update is needed.
 			self::stash_early_fragment( $fragment );
 		}
 
-		if ( $apply && ( $changed || ! ( self::$manager instanceof Manager ) ) ) {
+		// Detect if this fragment contributes patches (so we still need an apply).
+		$ctx         = Context::from_wp( array() );
+		$has_patches = ( method_exists( $fragment, 'patches' ) && ! empty( (array) $fragment->patches( $ctx ) ) );
+
+		if ( $apply && ( $changed || $has_patches || ! ( self::$manager instanceof Manager ) ) ) {
 			self::queue_apply( 'register:' . $reason_label );
 		}
 	}
-
 
 	/**
 	 * Unregister a fragment by ID and queue an apply.
@@ -127,15 +129,14 @@ class Api {
 
 		self::registry()->unregister( $id );
 
-		$changed = false;
 		if ( self::$manager instanceof Manager ) {
-			$changed = (bool) self::$manager->remove_persisted_fragment( $id );
+			self::$manager->remove_persisted_fragment( $id );
 		} else {
 			// Remove any matching early-stashed fragment.
 			self::unstash_early_fragment_by_id( $id );
 		}
 
-		if ( $apply && ( $changed || ! ( self::$manager instanceof Manager ) ) ) {
+		if ( $apply ) {
 			self::queue_apply( 'unregister:' . $id );
 		}
 	}
@@ -213,6 +214,7 @@ class Api {
 		foreach ( $fragments as $fragment ) {
 			if ( $fragment instanceof Fragment ) {
 				try {
+					self::registry()->register( $fragment );
 					$changed_any = self::$manager->persist_fragment_state( $fragment ) || $changed_any;
 				} catch ( \Throwable $e ) {
 					// Keep going; one bad fragment shouldn't block the rest.
@@ -224,8 +226,20 @@ class Api {
 		$option_key = Options::get_option_name( 'early_fragments' );
 		delete_site_option( $option_key );
 
+		// Queue if any flushed fragment might patch (even if body unchanged).
+		$ctx         = Context::from_wp( array() );
+		$needs_apply = $changed_any;
+		foreach ( $fragments as $fragment ) {
+			if ( $fragment instanceof Fragment && method_exists( $fragment, 'patches' ) ) {
+				$patches = (array) $fragment->patches( $ctx );
+				if ( ! empty( $patches ) ) {
+					$needs_apply = true;
+					break;
+				}
+			}
+		}
 		// If anything changed, make sure we run a canonical apply.
-		if ( $changed_any ) {
+		if ( $needs_apply ) {
 			self::queue_apply( 'boot:early-fragments' );
 		}
 	}

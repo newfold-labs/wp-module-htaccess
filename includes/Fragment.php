@@ -112,4 +112,25 @@ interface Fragment {
 	 * @return string Rendered .htaccess fragment without a trailing newline.
 	 */
 	public function render( $context );
+
+	/**
+	 * Return regex patches to modify existing text.
+	 *
+	 * Each patch is an associative array:
+	 * - 'scope'       string One of: 'full', 'wp_block', 'managed_block'
+	 * - 'pattern'     string PCRE with delimiters, e.g. '~^RewriteRule\s+\.\s+/index\.php\s+\[L\]\s*$~m'
+	 * - 'replacement' string Replacement (backrefs allowed)
+	 * - 'limit'       int    Optional; default -1 (replace all)
+	 *
+	 * @since 1.1.0
+	 *
+	 * @param mixed $context Optional context.
+	 * @return array<int,array{
+	 *   scope:string,
+	 *   pattern:string,
+	 *   replacement:string,
+	 *   limit?:int
+	 * }>
+	 */
+	public function patches( $context );
 }
