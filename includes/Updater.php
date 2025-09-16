@@ -170,6 +170,30 @@ class Updater {
 
 		$final = $this->apply_fragment_patches( $final, $fragments, $context );
 
+		// Normalize once for a clean compare
+		$final_norm   = Text::normalize_lf( (string) $final, false );
+		$current_norm = Text::normalize_lf( (string) $current_full, false );
+
+		// Reuse current STATE line (sha + applied timestamp) for the compare,
+		// so we don't rewrite just to bump the timestamp.
+		$state_re = '/^\s*#\s*STATE\s+sha256:\s*[0-9a-f]{64}\s+applied:\s+.+$/mi';
+
+		$current_state = null;
+		if ( preg_match( $state_re, $current_norm, $m ) ) {
+			$current_state = $m[0];
+		}
+
+		$final_for_compare = $final_norm;
+		if ( null !== $current_state ) {
+			// Replace the STATE line in the candidate with the current file's STATE line.
+			$final_for_compare = preg_replace( $state_re, $current_state, $final_for_compare, 1 );
+		}
+
+		// If nothing really changed (ignoring timestamp), no-op.
+		if ( $final_for_compare === $current_norm ) {
+			return true;
+		}
+
 		// No-op if the patched result equals what's currently on disk.
 		if ( $final === $current_full ) {
 			return true;

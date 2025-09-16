@@ -402,8 +402,19 @@ class Manager {
 			$has_legacy   = ( is_array( $probe_result ) && ! empty( $probe_result['removed'] ) );
 		}
 
+		// Also detect if any currently enabled fragments (if any) want to patch.
+		$fragments         = Api::enabled_fragments( $context );
+		$needs_patch_apply = false;
+		foreach ( (array) $fragments as $frag ) {
+			if ( $frag instanceof Fragment && method_exists( $frag, 'patches' ) ) {
+				$patches = (array) $frag->patches( $context );
+				if ( ! empty( $patches ) ) { $needs_patch_apply = true;
+					break; }
+			}
+		}
+
 		// Rewrite if checksum differs OR legacy blocks are present.
-		if ( $current_hash !== (string) $saved['checksum'] || $has_legacy ) {
+		if ( $current_hash !== (string) $saved['checksum'] || $has_legacy || $needs_patch_apply ) {
 			$this->updater->apply_managed_block(
 				(string) $saved['body'],
 				(string) $saved['host'],
