@@ -10,7 +10,7 @@ namespace NewfoldLabs\WP\Module\Htaccess;
 class ConfigWPUnitTest extends \lucatume\WPBrowser\TestCase\WPTestCase {
 
 	/**
-	 * marker returns default when no filter override.
+	 * Marker returns default when no filter override.
 	 *
 	 * @return void
 	 */

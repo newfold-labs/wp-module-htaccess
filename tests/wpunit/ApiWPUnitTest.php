@@ -10,7 +10,7 @@ namespace NewfoldLabs\WP\Module\Htaccess;
 class ApiWPUnitTest extends \lucatume\WPBrowser\TestCase\WPTestCase {
 
 	/**
-	 * registry returns a Registry instance.
+	 * Returns a Registry instance from Api::registry().
 	 *
 	 * @return void
 	 */
@@ -20,7 +20,7 @@ class ApiWPUnitTest extends \lucatume\WPBrowser\TestCase\WPTestCase {
 	}
 
 	/**
-	 * enabled_fragments returns array from registry.
+	 * Returns array from registry via Api::enabled_fragments().
 	 *
 	 * @return void
 	 */

@@ -16,7 +16,7 @@ class ValidatorWPUnitTest extends \lucatume\WPBrowser\TestCase\WPTestCase {
 	 */
 	public function test_is_valid_accepts_balanced_begin_end() {
 		$validator = new Validator();
-		$text     = "# BEGIN WordPress\n<IfModule mod_rewrite.c>\nRewriteRule x 1 [L]\n</IfModule>\n# END WordPress";
+		$text      = "# BEGIN WordPress\n<IfModule mod_rewrite.c>\nRewriteRule x 1 [L]\n</IfModule>\n# END WordPress";
 		$this->assertTrue( $validator->is_valid( $text, array() ) );
 		$this->assertSame( array(), $validator->get_errors() );
 	}
@@ -59,7 +59,7 @@ class ValidatorWPUnitTest extends \lucatume\WPBrowser\TestCase\WPTestCase {
 	}
 
 	/**
-	 * remediate returns string and removes forbidden handler lines.
+	 * Remediate returns string and removes forbidden handler lines.
 	 *
 	 * @return void
 	 */

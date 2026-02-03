@@ -18,6 +18,7 @@ class RegistryWPUnitTest extends \lucatume\WPBrowser\TestCase\WPTestCase {
 	 * @return Fragment
 	 */
 	private function create_fragment_stub( $id = 'test-fragment', $priority = 100, $enabled = true ) {
+		// phpcs:disable Squiz.Commenting.VariableComment.Missing,Squiz.Commenting.FunctionComment.Missing -- Fragment impl in anonymous class
 		return new class( $id, $priority, $enabled ) implements Fragment {
 			private $id;
 			private $priority;
@@ -46,10 +47,11 @@ class RegistryWPUnitTest extends \lucatume\WPBrowser\TestCase\WPTestCase {
 				return array();
 			}
 		};
+		// phpcs:enable Squiz.Commenting.VariableComment.Missing,Squiz.Commenting.FunctionComment.Missing
 	}
 
 	/**
-	 * register adds fragment and returns true when changed.
+	 * Register adds fragment and returns true when changed.
 	 *
 	 * @return void
 	 */
@@ -63,7 +65,7 @@ class RegistryWPUnitTest extends \lucatume\WPBrowser\TestCase\WPTestCase {
 	}
 
 	/**
-	 * register with empty id returns false.
+	 * Register with empty id returns false.
 	 *
 	 * @return void
 	 */
@@ -75,7 +77,7 @@ class RegistryWPUnitTest extends \lucatume\WPBrowser\TestCase\WPTestCase {
 	}
 
 	/**
-	 * unregister removes fragment by id.
+	 * Unregister removes fragment by id.
 	 *
 	 * @return void
 	 */
@@ -89,7 +91,7 @@ class RegistryWPUnitTest extends \lucatume\WPBrowser\TestCase\WPTestCase {
 	}
 
 	/**
-	 * unregister returns false when id not present.
+	 * Unregister returns false when id not present.
 	 *
 	 * @return void
 	 */
@@ -99,7 +101,7 @@ class RegistryWPUnitTest extends \lucatume\WPBrowser\TestCase\WPTestCase {
 	}
 
 	/**
-	 * all and ids return registered fragments.
+	 * All and ids return registered fragments.
 	 *
 	 * @return void
 	 */
@@ -112,7 +114,7 @@ class RegistryWPUnitTest extends \lucatume\WPBrowser\TestCase\WPTestCase {
 	}
 
 	/**
-	 * enabled_fragments returns only enabled fragments sorted by priority.
+	 * Enabled_fragments returns only enabled fragments sorted by priority.
 	 *
 	 * @return void
 	 */
@@ -129,7 +131,7 @@ class RegistryWPUnitTest extends \lucatume\WPBrowser\TestCase\WPTestCase {
 	}
 
 	/**
-	 * clear removes all fragments.
+	 * Clear removes all fragments.
 	 *
 	 * @return void
 	 */

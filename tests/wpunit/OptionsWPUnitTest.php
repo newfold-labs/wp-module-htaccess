@@ -10,7 +10,7 @@ namespace NewfoldLabs\WP\Module\Htaccess;
 class OptionsWPUnitTest extends \lucatume\WPBrowser\TestCase\WPTestCase {
 
 	/**
-	 * get_option_name returns prefixed option name for known key.
+	 * Get_option_name returns prefixed option name for known key.
 	 *
 	 * @return void
 	 */
@@ -22,7 +22,7 @@ class OptionsWPUnitTest extends \lucatume\WPBrowser\TestCase\WPTestCase {
 	}
 
 	/**
-	 * get_option_name with attach_prefix false returns key without prefix.
+	 * Get_option_name with attach_prefix false returns key without prefix.
 	 *
 	 * @return void
 	 */
@@ -31,7 +31,7 @@ class OptionsWPUnitTest extends \lucatume\WPBrowser\TestCase\WPTestCase {
 	}
 
 	/**
-	 * get_option_name returns false for unknown key.
+	 * Get_option_name returns false for unknown key.
 	 *
 	 * @return void
 	 */
@@ -40,7 +40,7 @@ class OptionsWPUnitTest extends \lucatume\WPBrowser\TestCase\WPTestCase {
 	}
 
 	/**
-	 * get_all_options returns list of option keys.
+	 * Get_all_options returns list of option keys.
 	 *
 	 * @return void
 	 */

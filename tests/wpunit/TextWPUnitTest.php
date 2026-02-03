@@ -10,7 +10,7 @@ namespace NewfoldLabs\WP\Module\Htaccess;
 class TextWPUnitTest extends \lucatume\WPBrowser\TestCase\WPTestCase {
 
 	/**
-	 * normalize_lf converts CRLF and CR to LF.
+	 * Normalize_lf converts CRLF and CR to LF.
 	 *
 	 * @return void
 	 */
@@ -20,7 +20,7 @@ class TextWPUnitTest extends \lucatume\WPBrowser\TestCase\WPTestCase {
 	}
 
 	/**
-	 * trim_surrounding_blank_lines removes leading and trailing blank lines.
+	 * Trim_surrounding_blank_lines removes leading and trailing blank lines.
 	 *
 	 * @return void
 	 */
@@ -29,7 +29,7 @@ class TextWPUnitTest extends \lucatume\WPBrowser\TestCase\WPTestCase {
 	}
 
 	/**
-	 * ensure_single_trailing_newline adds or normalizes trailing newline.
+	 * Ensure_single_trailing_newline adds or normalizes trailing newline.
 	 *
 	 * @return void
 	 */
@@ -39,7 +39,7 @@ class TextWPUnitTest extends \lucatume\WPBrowser\TestCase\WPTestCase {
 	}
 
 	/**
-	 * collapse_excess_blanks reduces 3+ newlines to 2.
+	 * Collapse_excess_blanks reduces 3+ newlines to 2.
 	 *
 	 * @return void
 	 */
@@ -48,37 +48,37 @@ class TextWPUnitTest extends \lucatume\WPBrowser\TestCase\WPTestCase {
 	}
 
 	/**
-	 * strip_inner_markers_from_body removes BEGIN/END marker lines.
+	 * Strip_inner_markers_from_body removes BEGIN/END marker lines.
 	 *
 	 * @return void
 	 */
 	public function test_strip_inner_markers_from_body() {
 		$input = "# BEGIN Foo\nRewriteRule ^x 1 [L]\n# END Foo";
-		$this->assertSame( "RewriteRule ^x 1 [L]", Text::strip_inner_markers_from_body( $input ) );
+		$this->assertSame( 'RewriteRule ^x 1 [L]', Text::strip_inner_markers_from_body( $input ) );
 	}
 
 	/**
-	 * extract_from_markers_raw returns lines between BEGIN and END marker.
+	 * Extract_from_markers_raw returns lines between BEGIN and END marker.
 	 *
 	 * @return void
 	 */
 	public function test_extract_from_markers_raw() {
-		$buf = "before\n# BEGIN TestMarker\nline1\nline2\n# END TestMarker\nafter";
+		$buf   = "before\n# BEGIN TestMarker\nline1\nline2\n# END TestMarker\nafter";
 		$lines = Text::extract_from_markers_raw( $buf, 'TestMarker' );
 		$this->assertSame( array( 'line1', 'line2' ), $lines );
 	}
 
 	/**
-	 * extract_from_markers_raw returns empty array when marker missing.
+	 * Extract_from_markers_raw returns empty array when marker missing.
 	 *
 	 * @return void
 	 */
 	public function test_extract_from_markers_raw_returns_empty_when_marker_missing() {
-		$this->assertSame( array(), Text::extract_from_markers_raw( "no marker here", 'Missing' ) );
+		$this->assertSame( array(), Text::extract_from_markers_raw( 'no marker here', 'Missing' ) );
 	}
 
 	/**
-	 * extract_from_markers_text returns string content between markers.
+	 * Extract_from_markers_text returns string content between markers.
 	 *
 	 * @return void
 	 */
@@ -88,12 +88,12 @@ class TextWPUnitTest extends \lucatume\WPBrowser\TestCase\WPTestCase {
 	}
 
 	/**
-	 * canonicalize_managed_body_for_hash strips managed header lines.
+	 * Canonicalize_managed_body_for_hash strips managed header lines.
 	 *
 	 * @return void
 	 */
 	public function test_canonicalize_managed_body_for_hash_strips_headers() {
-		$body = "# Managed by NFD\n# STATE sha256: abc\n\nRewriteRule x 1 [L]";
+		$body  = "# Managed by NFD\n# STATE sha256: abc\n\nRewriteRule x 1 [L]";
 		$canon = Text::canonicalize_managed_body_for_hash( $body );
 		$this->assertSame( 'RewriteRule x 1 [L]', $canon );
 	}

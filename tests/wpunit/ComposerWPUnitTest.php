@@ -15,6 +15,7 @@ class ComposerWPUnitTest extends \lucatume\WPBrowser\TestCase\WPTestCase {
 	 * @return Fragment
 	 */
 	private function create_fragment_stub() {
+		// phpcs:disable Squiz.Commenting.FunctionComment.Missing -- Fragment interface impl in anonymous class
 		return new class() implements Fragment {
 			public function id() {
 				return 'test-stub';
@@ -35,10 +36,11 @@ class ComposerWPUnitTest extends \lucatume\WPBrowser\TestCase\WPTestCase {
 				return array();
 			}
 		};
+		// phpcs:enable Squiz.Commenting.FunctionComment.Missing
 	}
 
 	/**
-	 * compose_body_only returns concatenated body from fragments.
+	 * Compose_body_only returns concatenated body from fragments.
 	 *
 	 * @return void
 	 */
@@ -52,7 +54,7 @@ class ComposerWPUnitTest extends \lucatume\WPBrowser\TestCase\WPTestCase {
 	}
 
 	/**
-	 * compose_body_only with empty array returns empty string.
+	 * Compose_body_only with empty array returns empty string.
 	 *
 	 * @return void
 	 */

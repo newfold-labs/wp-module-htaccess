@@ -10,7 +10,7 @@ namespace NewfoldLabs\WP\Module\Htaccess;
 class ContextWPUnitTest extends \lucatume\WPBrowser\TestCase\WPTestCase {
 
 	/**
-	 * from_wp builds context with WordPress environment.
+	 * From_wp builds context with WordPress environment.
 	 *
 	 * @return void
 	 */
@@ -27,7 +27,7 @@ class ContextWPUnitTest extends \lucatume\WPBrowser\TestCase\WPTestCase {
 	}
 
 	/**
-	 * setting returns embedded value when key exists.
+	 * Setting returns embedded value when key exists.
 	 *
 	 * @return void
 	 */
@@ -38,13 +38,13 @@ class ContextWPUnitTest extends \lucatume\WPBrowser\TestCase\WPTestCase {
 	}
 
 	/**
-	 * htaccess_path returns path when home_path is set.
+	 * Htaccess_path returns path when home_path is set.
 	 *
 	 * @return void
 	 */
 	public function test_htaccess_path() {
-		$ctx = Context::from_wp( array() );
-		$path = $ctx->htaccess_path();
+		$ctx  = Context::from_wp( array() );
+		$path  = $ctx->htaccess_path();
 		$this->assertIsString( $path );
 		if ( '' !== $ctx->home_path() ) {
 			$this->assertStringEndsWith( '.htaccess', $path );
@@ -52,13 +52,13 @@ class ContextWPUnitTest extends \lucatume\WPBrowser\TestCase\WPTestCase {
 	}
 
 	/**
-	 * to_array returns associative array of context data.
+	 * To_array returns associative array of context data.
 	 *
 	 * @return void
 	 */
 	public function test_to_array() {
-		$ctx  = Context::from_wp( array( 'k' => 'v' ) );
-		$arr  = $ctx->to_array();
+		$ctx = Context::from_wp( array( 'k' => 'v' ) );
+		$arr = $ctx->to_array();
 		$this->assertIsArray( $arr );
 		$this->assertArrayHasKey( 'home_url', $arr );
 		$this->assertArrayHasKey( 'settings', $arr );
