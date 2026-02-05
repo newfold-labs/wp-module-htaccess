@@ -29,14 +29,19 @@
     "require-dev": {
         "newfold-labs/wp-php-standards": "^1.2",
         "wp-cli/i18n-command": "^2.6.6",
-        "wp-cli/wp-cli": "^2.12"
+        "wp-cli/wp-cli": "^2.12",
+        "johnpbloch/wordpress": "@stable",
+        "lucatume/wp-browser": "*",
+        "phpunit/phpcov": "*"
     },
     "config": {
         "allow-plugins": {
-            "dealerdirect/phpcodesniffer-composer-installer": true
+            "dealerdirect/phpcodesniffer-composer-installer": true,
+            "composer/installers": true,
+            "johnpbloch/wordpress-core-installer": true
         },
         "platform": {
-            "php": "7.3.0"
+            "php": "7.4.33"
         }
     },
     "scripts": {
@@ -51,6 +56,12 @@
             "@i18n-php",
             "@i18n-json"
         ],
-        "lint": "vendor/bin/phpcs . --standard=phpcs.xml -s"
+        "lint": "vendor/bin/phpcs . --standard=phpcs.xml -s",
+        "test": "codecept run wpunit",
+        "test-coverage": "codecept run wpunit --coverage wpunit.cov && phpcov merge --php tests/_output/merged.cov --html tests/_output/html tests/_output && echo \"open tests/_output/html/index.html to view the report\""
+    },
+    "scripts-descriptions": {
+        "test": "Run wpunit tests.",
+        "test-coverage": "Run wpunit tests with coverage."
     }
 }

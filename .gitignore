@@ -3,3 +3,8 @@ vendor
 .DS_Store
 .vscode
 initial-plan.txt
+
+# WP-Browser / wpunit
+.env.testing
+tests/_output
+tests/_support/_generated
