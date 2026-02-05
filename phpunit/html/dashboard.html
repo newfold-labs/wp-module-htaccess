@@ -1,0 +1,508 @@
+<!DOCTYPE html>
+<html lang="en">
+ <head>
+  <meta charset="UTF-8">
+  <title>Dashboard for /home/runner/work/wp-module-htaccess/wp-module-htaccess</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <link href="_css/bootstrap.min.css?v=9.2.32" rel="stylesheet" type="text/css">
+  <link href="_css/nv.d3.min.css?v=9.2.32" rel="stylesheet" type="text/css">
+  <link href="_css/style.css?v=9.2.32" rel="stylesheet" type="text/css">
+  <link href="_css/custom.css" rel="stylesheet" type="text/css">
+ </head>
+ <body>
+  <header>
+   <div class="container-fluid">
+    <div class="row">
+     <div class="col-md-12">
+      <nav aria-label="breadcrumb">
+       <ol class="breadcrumb">
+         <li class="breadcrumb-item"><a href="index.html">/home/runner/work/wp-module-htaccess/wp-module-htaccess</a></li>
+         <li class="breadcrumb-item active">(Dashboard)</li>
+
+       </ol>
+      </nav>
+     </div>
+    </div>
+   </div>
+  </header>
+  <div class="container-fluid">
+   <div class="row">
+    <div class="col-md-12">
+     <h2>Classes</h2>
+    </div>
+   </div>
+   <div class="row">
+    <div class="col-md-6">
+     <h3>Coverage Distribution</h3>
+     <div id="classCoverageDistribution" style="height: 300px;">
+       <svg></svg>
+     </div>
+    </div>
+    <div class="col-md-6">
+     <h3>Complexity</h3>
+     <div id="classComplexity" style="height: 300px;">
+       <svg></svg>
+     </div>
+    </div>
+   </div>
+   <div class="row">
+    <div class="col-md-6">
+     <h3>Insufficient Coverage</h3>
+     <div class="scrollbox">
+      <table class="table">
+       <thead>
+        <tr>
+         <th>Class</th>
+         <th class="text-right">Coverage</th>
+        </tr>
+       </thead>
+       <tbody>
+       <tr><td><a href="includes/CLI.php.html#36">NewfoldLabs\WP\Module\Htaccess\CLI</a></td><td class="text-right">0%</td></tr>
+       <tr><td><a href="includes/Cron.php.html#20">NewfoldLabs\WP\Module\Htaccess\Cron</a></td><td class="text-right">0%</td></tr>
+       <tr><td><a href="includes/Manager.php.html#28">NewfoldLabs\WP\Module\Htaccess\Manager</a></td><td class="text-right">0%</td></tr>
+       <tr><td><a href="includes/Migrator.php.html#9">NewfoldLabs\WP\Module\Htaccess\Migrator</a></td><td class="text-right">0%</td></tr>
+       <tr><td><a href="includes/Scanner.php.html#26">NewfoldLabs\WP\Module\Htaccess\Scanner</a></td><td class="text-right">0%</td></tr>
+       <tr><td><a href="includes/Updater.php.html#18">NewfoldLabs\WP\Module\Htaccess\Updater</a></td><td class="text-right">0%</td></tr>
+       <tr><td><a href="includes/Api.php.html#18">NewfoldLabs\WP\Module\Htaccess\Api</a></td><td class="text-right">4%</td></tr>
+       <tr><td><a href="includes/Registry.php.html#15">NewfoldLabs\WP\Module\Htaccess\Registry</a></td><td class="text-right">70%</td></tr>
+       <tr><td><a href="includes/Context.php.html#20">NewfoldLabs\WP\Module\Htaccess\Context</a></td><td class="text-right">70%</td></tr>
+       <tr><td><a href="includes/Composer.php.html#22">NewfoldLabs\WP\Module\Htaccess\Composer</a></td><td class="text-right">76%</td></tr>
+       <tr><td><a href="includes/Validator.php.html#22">NewfoldLabs\WP\Module\Htaccess\Validator</a></td><td class="text-right">80%</td></tr>
+
+       </tbody>
+      </table>
+     </div>
+    </div>
+    <div class="col-md-6">
+     <h3>Project Risks</h3>
+     <div class="scrollbox">
+      <table class="table">
+       <thead>
+        <tr>
+         <th>Class</th>
+         <th class="text-right"><abbr title="Change Risk Anti-Patterns (CRAP) Index">CRAP</abbr></th>
+        </tr>
+       </thead>
+       <tbody>
+       <tr><td><a href="includes/Manager.php.html#28">NewfoldLabs\WP\Module\Htaccess\Manager</a></td><td class="text-right">19182</td></tr>
+       <tr><td><a href="includes/Updater.php.html#18">NewfoldLabs\WP\Module\Htaccess\Updater</a></td><td class="text-right">18360</td></tr>
+       <tr><td><a href="includes/Scanner.php.html#26">NewfoldLabs\WP\Module\Htaccess\Scanner</a></td><td class="text-right">15252</td></tr>
+       <tr><td><a href="includes/CLI.php.html#36">NewfoldLabs\WP\Module\Htaccess\CLI</a></td><td class="text-right">3782</td></tr>
+       <tr><td><a href="includes/Api.php.html#18">NewfoldLabs\WP\Module\Htaccess\Api</a></td><td class="text-right">1787</td></tr>
+       <tr><td><a href="includes/Migrator.php.html#9">NewfoldLabs\WP\Module\Htaccess\Migrator</a></td><td class="text-right">380</td></tr>
+       <tr><td><a href="includes/Cron.php.html#20">NewfoldLabs\WP\Module\Htaccess\Cron</a></td><td class="text-right">182</td></tr>
+       <tr><td><a href="includes/Context.php.html#20">NewfoldLabs\WP\Module\Htaccess\Context</a></td><td class="text-right">119</td></tr>
+       <tr><td><a href="includes/Registry.php.html#15">NewfoldLabs\WP\Module\Htaccess\Registry</a></td><td class="text-right">70</td></tr>
+       <tr><td><a href="includes/Validator.php.html#22">NewfoldLabs\WP\Module\Htaccess\Validator</a></td><td class="text-right">55</td></tr>
+       <tr><td><a href="includes/Composer.php.html#22">NewfoldLabs\WP\Module\Htaccess\Composer</a></td><td class="text-right">29</td></tr>
+
+       </tbody>
+      </table>
+     </div>
+    </div>
+   </div>
+   <div class="row">
+    <div class="col-md-12">
+     <h2>Methods</h2>
+    </div>
+   </div>
+   <div class="row">
+    <div class="col-md-6">
+     <h3>Coverage Distribution</h3>
+     <div id="methodCoverageDistribution" style="height: 300px;">
+       <svg></svg>
+     </div>
+    </div>
+    <div class="col-md-6">
+     <h3>Complexity</h3>
+     <div id="methodComplexity" style="height: 300px;">
+       <svg></svg>
+     </div>
+    </div>
+   </div>
+   <div class="row">
+    <div class="col-md-6">
+     <h3>Insufficient Coverage</h3>
+     <div class="scrollbox">
+      <table class="table">
+       <thead>
+        <tr>
+         <th>Method</th>
+         <th class="text-right">Coverage</th>
+        </tr>
+       </thead>
+       <tbody>
+       <tr><td><a href="includes/Api.php.html#42"><abbr title="NewfoldLabs\WP\Module\Htaccess\Api::set_registry">set_registry</abbr></a></td><td class="text-right">0%</td></tr>
+       <tr><td><a href="includes/Scanner.php.html#57"><abbr title="NewfoldLabs\WP\Module\Htaccess\Scanner::__construct">__construct</abbr></a></td><td class="text-right">0%</td></tr>
+       <tr><td><a href="includes/Scanner.php.html#503"><abbr title="NewfoldLabs\WP\Module\Htaccess\Scanner::read_file">read_file</abbr></a></td><td class="text-right">0%</td></tr>
+       <tr><td><a href="includes/Scanner.php.html#489"><abbr title="NewfoldLabs\WP\Module\Htaccess\Scanner::ensure_wp_file_helpers">ensure_wp_file_helpers</abbr></a></td><td class="text-right">0%</td></tr>
+       <tr><td><a href="includes/Scanner.php.html#463"><abbr title="NewfoldLabs\WP\Module\Htaccess\Scanner::get_htaccess_path">get_htaccess_path</abbr></a></td><td class="text-right">0%</td></tr>
+       <tr><td><a href="includes/Scanner.php.html#420"><abbr title="NewfoldLabs\WP\Module\Htaccess\Scanner::extract_marker_lines">extract_marker_lines</abbr></a></td><td class="text-right">0%</td></tr>
+       <tr><td><a href="includes/Scanner.php.html#395"><abbr title="NewfoldLabs\WP\Module\Htaccess\Scanner::extract_hash_from_lines">extract_hash_from_lines</abbr></a></td><td class="text-right">0%</td></tr>
+       <tr><td><a href="includes/Scanner.php.html#372"><abbr title="NewfoldLabs\WP\Module\Htaccess\Scanner::list_backups">list_backups</abbr></a></td><td class="text-right">0%</td></tr>
+       <tr><td><a href="includes/Scanner.php.html#278"><abbr title="NewfoldLabs\WP\Module\Htaccess\Scanner::restore_latest_backup_verified">restore_latest_backup_verified</abbr></a></td><td class="text-right">0%</td></tr>
+       <tr><td><a href="includes/Scanner.php.html#237"><abbr title="NewfoldLabs\WP\Module\Htaccess\Scanner::remediate">remediate</abbr></a></td><td class="text-right">0%</td></tr>
+       <tr><td><a href="includes/Scanner.php.html#152"><abbr title="NewfoldLabs\WP\Module\Htaccess\Scanner::scan">scan</abbr></a></td><td class="text-right">0%</td></tr>
+       <tr><td><a href="includes/Scanner.php.html#78"><abbr title="NewfoldLabs\WP\Module\Htaccess\Scanner::diagnose">diagnose</abbr></a></td><td class="text-right">0%</td></tr>
+       <tr><td><a href="includes/Registry.php.html#94"><abbr title="NewfoldLabs\WP\Module\Htaccess\Registry::unregister_many">unregister_many</abbr></a></td><td class="text-right">0%</td></tr>
+       <tr><td><a href="includes/Scanner.php.html#587"><abbr title="NewfoldLabs\WP\Module\Htaccess\Scanner::copy_overwrite">copy_overwrite</abbr></a></td><td class="text-right">0%</td></tr>
+       <tr><td><a href="includes/Registry.php.html#55"><abbr title="NewfoldLabs\WP\Module\Htaccess\Registry::register_many">register_many</abbr></a></td><td class="text-right">0%</td></tr>
+       <tr><td><a href="includes/Migrator.php.html#127"><abbr title="NewfoldLabs\WP\Module\Htaccess\Migrator::postprocess">postprocess</abbr></a></td><td class="text-right">0%</td></tr>
+       <tr><td><a href="includes/Migrator.php.html#23"><abbr title="NewfoldLabs\WP\Module\Htaccess\Migrator::remove_legacy_blocks">remove_legacy_blocks</abbr></a></td><td class="text-right">0%</td></tr>
+       <tr><td><a href="includes/Manager.php.html#790"><abbr title="NewfoldLabs\WP\Module\Htaccess\Manager::resolve_htaccess_path">resolve_htaccess_path</abbr></a></td><td class="text-right">0%</td></tr>
+       <tr><td><a href="includes/Manager.php.html#751"><abbr title="NewfoldLabs\WP\Module\Htaccess\Manager::enabled_non_wp_fragments">enabled_non_wp_fragments</abbr></a></td><td class="text-right">0%</td></tr>
+       <tr><td><a href="includes/Manager.php.html#717"><abbr title="NewfoldLabs\WP\Module\Htaccess\Manager::collect_legacy_marker_labels">collect_legacy_marker_labels</abbr></a></td><td class="text-right">0%</td></tr>
+       <tr><td><a href="includes/Manager.php.html#702"><abbr title="NewfoldLabs\WP\Module\Htaccess\Manager::ensure_wp_file_helpers">ensure_wp_file_helpers</abbr></a></td><td class="text-right">0%</td></tr>
+       <tr><td><a href="includes/Manager.php.html#679"><abbr title="NewfoldLabs\WP\Module\Htaccess\Manager::save_state_full">save_state_full</abbr></a></td><td class="text-right">0%</td></tr>
+       <tr><td><a href="includes/Manager.php.html#658"><abbr title="NewfoldLabs\WP\Module\Htaccess\Manager::load_saved_state">load_saved_state</abbr></a></td><td class="text-right">0%</td></tr>
+       <tr><td><a href="includes/Manager.php.html#619"><abbr title="NewfoldLabs\WP\Module\Htaccess\Manager::compose_from_saved_blocks">compose_from_saved_blocks</abbr></a></td><td class="text-right">0%</td></tr>
+       <tr><td><a href="includes/Scanner.php.html#550"><abbr title="NewfoldLabs\WP\Module\Htaccess\Scanner::probe_http_status">probe_http_status</abbr></a></td><td class="text-right">0%</td></tr>
+       <tr><td><a href="includes/Scanner.php.html#622"><abbr title="NewfoldLabs\WP\Module\Htaccess\Scanner::scan_dir">scan_dir</abbr></a></td><td class="text-right">0%</td></tr>
+       <tr><td><a href="includes/Api.php.html#57"><abbr title="NewfoldLabs\WP\Module\Htaccess\Api::set_manager">set_manager</abbr></a></td><td class="text-right">0%</td></tr>
+       <tr><td><a href="includes/Updater.php.html#496"><abbr title="NewfoldLabs\WP\Module\Htaccess\Updater::read_file">read_file</abbr></a></td><td class="text-right">0%</td></tr>
+       <tr><td><a href="includes/Validator.php.html#256"><abbr title="NewfoldLabs\WP\Module\Htaccess\Validator::check_duplicate_exclusive_blocks">check_duplicate_exclusive_blocks</abbr></a></td><td class="text-right">0%</td></tr>
+       <tr><td><a href="includes/Updater.php.html#787"><abbr title="NewfoldLabs\WP\Module\Htaccess\Updater::canonicalize_body_for_hash_keep_markers">canonicalize_body_for_hash_keep_markers</abbr></a></td><td class="text-right">0%</td></tr>
+       <tr><td><a href="includes/Updater.php.html#746"><abbr title="NewfoldLabs\WP\Module\Htaccess\Updater::slice_inside_markers_preserve_comments">slice_inside_markers_preserve_comments</abbr></a></td><td class="text-right">0%</td></tr>
+       <tr><td><a href="includes/Updater.php.html#730"><abbr title="NewfoldLabs\WP\Module\Htaccess\Updater::get_marker_regex_pair">get_marker_regex_pair</abbr></a></td><td class="text-right">0%</td></tr>
+       <tr><td><a href="includes/Updater.php.html#692"><abbr title="NewfoldLabs\WP\Module\Htaccess\Updater::inject_or_replace_managed_block">inject_or_replace_managed_block</abbr></a></td><td class="text-right">0%</td></tr>
+       <tr><td><a href="includes/Updater.php.html#676"><abbr title="NewfoldLabs\WP\Module\Htaccess\Updater::render_markered_block">render_markered_block</abbr></a></td><td class="text-right">0%</td></tr>
+       <tr><td><a href="includes/Updater.php.html#649"><abbr title="NewfoldLabs\WP\Module\Htaccess\Updater::get_current_body_hash">get_current_body_hash</abbr></a></td><td class="text-right">0%</td></tr>
+       <tr><td><a href="includes/Updater.php.html#606"><abbr title="NewfoldLabs\WP\Module\Htaccess\Updater::compute_body_hash_from_lines">compute_body_hash_from_lines</abbr></a></td><td class="text-right">0%</td></tr>
+       <tr><td><a href="includes/Updater.php.html#583"><abbr title="NewfoldLabs\WP\Module\Htaccess\Updater::scan_for_issues">scan_for_issues</abbr></a></td><td class="text-right">0%</td></tr>
+       <tr><td><a href="includes/Updater.php.html#515"><abbr title="NewfoldLabs\WP\Module\Htaccess\Updater::write_file_atomic">write_file_atomic</abbr></a></td><td class="text-right">0%</td></tr>
+       <tr><td><a href="includes/Updater.php.html#479"><abbr title="NewfoldLabs\WP\Module\Htaccess\Updater::restore_backup">restore_backup</abbr></a></td><td class="text-right">0%</td></tr>
+       <tr><td><a href="includes/Scanner.php.html#682"><abbr title="NewfoldLabs\WP\Module\Htaccess\Scanner::get_current_body_hash">get_current_body_hash</abbr></a></td><td class="text-right">0%</td></tr>
+       <tr><td><a href="includes/Updater.php.html#460"><abbr title="NewfoldLabs\WP\Module\Htaccess\Updater::refresh_single_backup">refresh_single_backup</abbr></a></td><td class="text-right">0%</td></tr>
+       <tr><td><a href="includes/Updater.php.html#442"><abbr title="NewfoldLabs\WP\Module\Htaccess\Updater::get_backup_path">get_backup_path</abbr></a></td><td class="text-right">0%</td></tr>
+       <tr><td><a href="includes/Updater.php.html#423"><abbr title="NewfoldLabs\WP\Module\Htaccess\Updater::ensure_wp_file_helpers">ensure_wp_file_helpers</abbr></a></td><td class="text-right">0%</td></tr>
+       <tr><td><a href="includes/Updater.php.html#401"><abbr title="NewfoldLabs\WP\Module\Htaccess\Updater::get_htaccess_path">get_htaccess_path</abbr></a></td><td class="text-right">0%</td></tr>
+       <tr><td><a href="includes/Updater.php.html#378"><abbr title="NewfoldLabs\WP\Module\Htaccess\Updater::build_block_lines">build_block_lines</abbr></a></td><td class="text-right">0%</td></tr>
+       <tr><td><a href="includes/Updater.php.html#229"><abbr title="NewfoldLabs\WP\Module\Htaccess\Updater::apply_fragment_patches">apply_fragment_patches</abbr></a></td><td class="text-right">0%</td></tr>
+       <tr><td><a href="includes/Updater.php.html#60"><abbr title="NewfoldLabs\WP\Module\Htaccess\Updater::apply_managed_block">apply_managed_block</abbr></a></td><td class="text-right">0%</td></tr>
+       <tr><td><a href="includes/Updater.php.html#34"><abbr title="NewfoldLabs\WP\Module\Htaccess\Updater::__construct">__construct</abbr></a></td><td class="text-right">0%</td></tr>
+       <tr><td><a href="includes/Scanner.php.html#763"><abbr title="NewfoldLabs\WP\Module\Htaccess\Scanner::canonicalize_body_for_hash_keep_markers">canonicalize_body_for_hash_keep_markers</abbr></a></td><td class="text-right">0%</td></tr>
+       <tr><td><a href="includes/Scanner.php.html#723"><abbr title="NewfoldLabs\WP\Module\Htaccess\Scanner::compute_body_hash_from_lines">compute_body_hash_from_lines</abbr></a></td><td class="text-right">0%</td></tr>
+       <tr><td><a href="includes/Manager.php.html#575"><abbr title="NewfoldLabs\WP\Module\Htaccess\Manager::remove_persisted_fragment">remove_persisted_fragment</abbr></a></td><td class="text-right">0%</td></tr>
+       <tr><td><a href="includes/Manager.php.html#500"><abbr title="NewfoldLabs\WP\Module\Htaccess\Manager::persist_fragment_state">persist_fragment_state</abbr></a></td><td class="text-right">0%</td></tr>
+       <tr><td><a href="includes/Manager.php.html#484"><abbr title="NewfoldLabs\WP\Module\Htaccess\Manager::container">container</abbr></a></td><td class="text-right">0%</td></tr>
+       <tr><td><a href="includes/CLI.php.html#410"><abbr title="NewfoldLabs\WP\Module\Htaccess\CLI::ctx">ctx</abbr></a></td><td class="text-right">0%</td></tr>
+       <tr><td><a href="includes/Manager.php.html#467"><abbr title="NewfoldLabs\WP\Module\Htaccess\Manager::read_current_htaccess">read_current_htaccess</abbr></a></td><td class="text-right">0%</td></tr>
+       <tr><td><a href="includes/CLI.php.html#510"><abbr title="NewfoldLabs\WP\Module\Htaccess\CLI::maybe_strict_halt">maybe_strict_halt</abbr></a></td><td class="text-right">0%</td></tr>
+       <tr><td><a href="includes/CLI.php.html#497"><abbr title="NewfoldLabs\WP\Module\Htaccess\CLI::default_version">default_version</abbr></a></td><td class="text-right">0%</td></tr>
+       <tr><td><a href="includes/CLI.php.html#479"><abbr title="NewfoldLabs\WP\Module\Htaccess\CLI::print_rows">print_rows</abbr></a></td><td class="text-right">0%</td></tr>
+       <tr><td><a href="includes/Api.php.html#165"><abbr title="NewfoldLabs\WP\Module\Htaccess\Api::queue_apply">queue_apply</abbr></a></td><td class="text-right">0%</td></tr>
+       <tr><td><a href="includes/CLI.php.html#466"><abbr title="NewfoldLabs\WP\Module\Htaccess\CLI::normalize_format">normalize_format</abbr></a></td><td class="text-right">0%</td></tr>
+       <tr><td><a href="includes/CLI.php.html#455"><abbr title="NewfoldLabs\WP\Module\Htaccess\CLI::get">get</abbr></a></td><td class="text-right">0%</td></tr>
+       <tr><td><a href="includes/CLI.php.html#443"><abbr title="NewfoldLabs\WP\Module\Htaccess\CLI::yn">yn</abbr></a></td><td class="text-right">0%</td></tr>
+       <tr><td><a href="includes/CLI.php.html#424"><abbr title="NewfoldLabs\WP\Module\Htaccess\CLI::get_enabled_fragments">get_enabled_fragments</abbr></a></td><td class="text-right">0%</td></tr>
+       <tr><td><a href="includes/CLI.php.html#390"><abbr title="NewfoldLabs\WP\Module\Htaccess\CLI::list_backups">list_backups</abbr></a></td><td class="text-right">0%</td></tr>
+       <tr><td><a href="includes/Api.php.html#187"><abbr title="NewfoldLabs\WP\Module\Htaccess\Api::fragment_reason_label">fragment_reason_label</abbr></a></td><td class="text-right">0%</td></tr>
+       <tr><td><a href="includes/CLI.php.html#324"><abbr title="NewfoldLabs\WP\Module\Htaccess\CLI::restore">restore</abbr></a></td><td class="text-right">0%</td></tr>
+       <tr><td><a href="includes/CLI.php.html#290"><abbr title="NewfoldLabs\WP\Module\Htaccess\CLI::remediate">remediate</abbr></a></td><td class="text-right">0%</td></tr>
+       <tr><td><a href="includes/CLI.php.html#261"><abbr title="NewfoldLabs\WP\Module\Htaccess\CLI::apply">apply</abbr></a></td><td class="text-right">0%</td></tr>
+       <tr><td><a href="includes/CLI.php.html#209"><abbr title="NewfoldLabs\WP\Module\Htaccess\CLI::scan">scan</abbr></a></td><td class="text-right">0%</td></tr>
+       <tr><td><a href="includes/CLI.php.html#167"><abbr title="NewfoldLabs\WP\Module\Htaccess\CLI::diagnose">diagnose</abbr></a></td><td class="text-right">0%</td></tr>
+       <tr><td><a href="includes/CLI.php.html#106"><abbr title="NewfoldLabs\WP\Module\Htaccess\CLI::status">status</abbr></a></td><td class="text-right">0%</td></tr>
+       <tr><td><a href="includes/CLI.php.html#69"><abbr title="NewfoldLabs\WP\Module\Htaccess\CLI::__construct">__construct</abbr></a></td><td class="text-right">0%</td></tr>
+       <tr><td><a href="includes/Api.php.html#272"><abbr title="NewfoldLabs\WP\Module\Htaccess\Api::unstash_early_fragment_by_id">unstash_early_fragment_by_id</abbr></a></td><td class="text-right">0%</td></tr>
+       <tr><td><a href="includes/Api.php.html#253"><abbr title="NewfoldLabs\WP\Module\Htaccess\Api::stash_early_fragment">stash_early_fragment</abbr></a></td><td class="text-right">0%</td></tr>
+       <tr><td><a href="includes/Composer.php.html#148"><abbr title="NewfoldLabs\WP\Module\Htaccess\Composer::detect_host">detect_host</abbr></a></td><td class="text-right">0%</td></tr>
+       <tr><td><a href="includes/Api.php.html#126"><abbr title="NewfoldLabs\WP\Module\Htaccess\Api::unregister">unregister</abbr></a></td><td class="text-right">0%</td></tr>
+       <tr><td><a href="includes/Api.php.html#207"><abbr title="NewfoldLabs\WP\Module\Htaccess\Api::flush_early_fragments_to_manager">flush_early_fragments_to_manager</abbr></a></td><td class="text-right">0%</td></tr>
+       <tr><td><a href="includes/Manager.php.html#172"><abbr title="NewfoldLabs\WP\Module\Htaccess\Manager::maybe_queue_on_option">maybe_queue_on_option</abbr></a></td><td class="text-right">0%</td></tr>
+       <tr><td><a href="includes/Manager.php.html#437"><abbr title="NewfoldLabs\WP\Module\Htaccess\Manager::collect_labels_from_saved_state">collect_labels_from_saved_state</abbr></a></td><td class="text-right">0%</td></tr>
+       <tr><td><a href="includes/Manager.php.html#363"><abbr title="NewfoldLabs\WP\Module\Htaccess\Manager::reconcile_saved_block">reconcile_saved_block</abbr></a></td><td class="text-right">0%</td></tr>
+       <tr><td><a href="includes/Manager.php.html#336"><abbr title="NewfoldLabs\WP\Module\Htaccess\Manager::remove_canonical_block">remove_canonical_block</abbr></a></td><td class="text-right">0%</td></tr>
+       <tr><td><a href="includes/Manager.php.html#281"><abbr title="NewfoldLabs\WP\Module\Htaccess\Manager::apply_canonical_state">apply_canonical_state</abbr></a></td><td class="text-right">0%</td></tr>
+       <tr><td><a href="includes/Manager.php.html#265"><abbr title="NewfoldLabs\WP\Module\Htaccess\Manager::release_lock">release_lock</abbr></a></td><td class="text-right">0%</td></tr>
+       <tr><td><a href="includes/Manager.php.html#246"><abbr title="NewfoldLabs\WP\Module\Htaccess\Manager::acquire_lock">acquire_lock</abbr></a></td><td class="text-right">0%</td></tr>
+       <tr><td><a href="includes/Manager.php.html#234"><abbr title="NewfoldLabs\WP\Module\Htaccess\Manager::on_plugin_deactivation">on_plugin_deactivation</abbr></a></td><td class="text-right">0%</td></tr>
+       <tr><td><a href="includes/Manager.php.html#216"><abbr title="NewfoldLabs\WP\Module\Htaccess\Manager::maybe_apply_on_shutdown">maybe_apply_on_shutdown</abbr></a></td><td class="text-right">0%</td></tr>
+       <tr><td><a href="includes/Manager.php.html#205"><abbr title="NewfoldLabs\WP\Module\Htaccess\Manager::mark_dirty">mark_dirty</abbr></a></td><td class="text-right">0%</td></tr>
+       <tr><td><a href="includes/Manager.php.html#185"><abbr title="NewfoldLabs\WP\Module\Htaccess\Manager::is_safe_context">is_safe_context</abbr></a></td><td class="text-right">0%</td></tr>
+       <tr><td><a href="includes/Manager.php.html#150"><abbr title="NewfoldLabs\WP\Module\Htaccess\Manager::queue_apply">queue_apply</abbr></a></td><td class="text-right">0%</td></tr>
+       <tr><td><a href="includes/Api.php.html#94"><abbr title="NewfoldLabs\WP\Module\Htaccess\Api::register">register</abbr></a></td><td class="text-right">0%</td></tr>
+       <tr><td><a href="includes/Manager.php.html#108"><abbr title="NewfoldLabs\WP\Module\Htaccess\Manager::boot">boot</abbr></a></td><td class="text-right">0%</td></tr>
+       <tr><td><a href="includes/Manager.php.html#97"><abbr title="NewfoldLabs\WP\Module\Htaccess\Manager::__construct">__construct</abbr></a></td><td class="text-right">0%</td></tr>
+       <tr><td><a href="includes/Cron.php.html#75"><abbr title="NewfoldLabs\WP\Module\Htaccess\Cron::execute">execute</abbr></a></td><td class="text-right">0%</td></tr>
+       <tr><td><a href="includes/Cron.php.html#56"><abbr title="NewfoldLabs\WP\Module\Htaccess\Cron::ensure_scheduled">ensure_scheduled</abbr></a></td><td class="text-right">0%</td></tr>
+       <tr><td><a href="includes/Cron.php.html#43"><abbr title="NewfoldLabs\WP\Module\Htaccess\Cron::register">register</abbr></a></td><td class="text-right">0%</td></tr>
+       <tr><td><a href="includes/Context.php.html#199"><abbr title="NewfoldLabs\WP\Module\Htaccess\Context::is_plugin_active">is_plugin_active</abbr></a></td><td class="text-right">0%</td></tr>
+       <tr><td><a href="includes/Context.php.html#333"><abbr title="NewfoldLabs\WP\Module\Htaccess\Context::detect_rewrite_capability">detect_rewrite_capability</abbr></a></td><td class="text-right">16%</td></tr>
+       <tr><td><a href="includes/Composer.php.html#164"><abbr title="NewfoldLabs\WP\Module\Htaccess\Composer::utc_now_iso8601">utc_now_iso8601</abbr></a></td><td class="text-right">50%</td></tr>
+       <tr><td><a href="includes/Composer.php.html#43"><abbr title="NewfoldLabs\WP\Module\Htaccess\Composer::__construct">__construct</abbr></a></td><td class="text-right">50%</td></tr>
+       <tr><td><a href="includes/Context.php.html#160"><abbr title="NewfoldLabs\WP\Module\Htaccess\Context::detect_active_plugins">detect_active_plugins</abbr></a></td><td class="text-right">58%</td></tr>
+       <tr><td><a href="includes/Context.php.html#360"><abbr title="NewfoldLabs\WP\Module\Htaccess\Context::htaccess_path">htaccess_path</abbr></a></td><td class="text-right">66%</td></tr>
+       <tr><td><a href="includes/Validator.php.html#278"><abbr title="NewfoldLabs\WP\Module\Htaccess\Validator::check_forbidden_handlers_scoped">check_forbidden_handlers_scoped</abbr></a></td><td class="text-right">69%</td></tr>
+       <tr><td><a href="includes/Context.php.html#93"><abbr title="NewfoldLabs\WP\Module\Htaccess\Context::from_wp">from_wp</abbr></a></td><td class="text-right">78%</td></tr>
+       <tr><td><a href="includes/Registry.php.html#174"><abbr title="NewfoldLabs\WP\Module\Htaccess\Registry::enabled_fragments">enabled_fragments</abbr></a></td><td class="text-right">78%</td></tr>
+       <tr><td><a href="includes/Validator.php.html#95"><abbr title="NewfoldLabs\WP\Module\Htaccess\Validator::remediate">remediate</abbr></a></td><td class="text-right">80%</td></tr>
+       <tr><td><a href="includes/Composer.php.html#121"><abbr title="NewfoldLabs\WP\Module\Htaccess\Composer::build_header">build_header</abbr></a></td><td class="text-right">83%</td></tr>
+       <tr><td><a href="includes/Text.php.html#107"><abbr title="NewfoldLabs\WP\Module\Htaccess\Text::extract_from_markers_raw">extract_from_markers_raw</abbr></a></td><td class="text-right">84%</td></tr>
+
+       </tbody>
+      </table>
+     </div>
+    </div>
+    <div class="col-md-6">
+     <h3>Project Risks</h3>
+     <div class="scrollbox">
+      <table class="table">
+       <thead>
+        <tr>
+         <th>Method</th>
+         <th class="text-right"><abbr title="Change Risk Anti-Patterns (CRAP) Index">CRAP</abbr></th>
+        </tr>
+       </thead>
+       <tbody>
+       <tr><td><a href="includes/Updater.php.html#229"><abbr title="NewfoldLabs\WP\Module\Htaccess\Updater::apply_fragment_patches">apply_fragment_patches</abbr></a></td><td class="text-right">1482</td></tr>
+       <tr><td><a href="includes/Updater.php.html#60"><abbr title="NewfoldLabs\WP\Module\Htaccess\Updater::apply_managed_block">apply_managed_block</abbr></a></td><td class="text-right">756</td></tr>
+       <tr><td><a href="includes/Manager.php.html#500"><abbr title="NewfoldLabs\WP\Module\Htaccess\Manager::persist_fragment_state">persist_fragment_state</abbr></a></td><td class="text-right">380</td></tr>
+       <tr><td><a href="includes/Migrator.php.html#23"><abbr title="NewfoldLabs\WP\Module\Htaccess\Migrator::remove_legacy_blocks">remove_legacy_blocks</abbr></a></td><td class="text-right">342</td></tr>
+       <tr><td><a href="includes/Scanner.php.html#622"><abbr title="NewfoldLabs\WP\Module\Htaccess\Scanner::scan_dir">scan_dir</abbr></a></td><td class="text-right">240</td></tr>
+       <tr><td><a href="includes/Manager.php.html#363"><abbr title="NewfoldLabs\WP\Module\Htaccess\Manager::reconcile_saved_block">reconcile_saved_block</abbr></a></td><td class="text-right">210</td></tr>
+       <tr><td><a href="includes/Scanner.php.html#278"><abbr title="NewfoldLabs\WP\Module\Htaccess\Scanner::restore_latest_backup_verified">restore_latest_backup_verified</abbr></a></td><td class="text-right">182</td></tr>
+       <tr><td><a href="includes/Manager.php.html#751"><abbr title="NewfoldLabs\WP\Module\Htaccess\Manager::enabled_non_wp_fragments">enabled_non_wp_fragments</abbr></a></td><td class="text-right">132</td></tr>
+       <tr><td><a href="includes/Api.php.html#207"><abbr title="NewfoldLabs\WP\Module\Htaccess\Api::flush_early_fragments_to_manager">flush_early_fragments_to_manager</abbr></a></td><td class="text-right">132</td></tr>
+       <tr><td><a href="includes/Manager.php.html#575"><abbr title="NewfoldLabs\WP\Module\Htaccess\Manager::remove_persisted_fragment">remove_persisted_fragment</abbr></a></td><td class="text-right">132</td></tr>
+       <tr><td><a href="includes/Scanner.php.html#503"><abbr title="NewfoldLabs\WP\Module\Htaccess\Scanner::read_file">read_file</abbr></a></td><td class="text-right">132</td></tr>
+       <tr><td><a href="includes/Scanner.php.html#152"><abbr title="NewfoldLabs\WP\Module\Htaccess\Scanner::scan">scan</abbr></a></td><td class="text-right">110</td></tr>
+       <tr><td><a href="includes/Manager.php.html#619"><abbr title="NewfoldLabs\WP\Module\Htaccess\Manager::compose_from_saved_blocks">compose_from_saved_blocks</abbr></a></td><td class="text-right">110</td></tr>
+       <tr><td><a href="includes/Manager.php.html#185"><abbr title="NewfoldLabs\WP\Module\Htaccess\Manager::is_safe_context">is_safe_context</abbr></a></td><td class="text-right">90</td></tr>
+       <tr><td><a href="includes/Manager.php.html#281"><abbr title="NewfoldLabs\WP\Module\Htaccess\Manager::apply_canonical_state">apply_canonical_state</abbr></a></td><td class="text-right">90</td></tr>
+       <tr><td><a href="includes/Scanner.php.html#78"><abbr title="NewfoldLabs\WP\Module\Htaccess\Scanner::diagnose">diagnose</abbr></a></td><td class="text-right">90</td></tr>
+       <tr><td><a href="includes/Scanner.php.html#420"><abbr title="NewfoldLabs\WP\Module\Htaccess\Scanner::extract_marker_lines">extract_marker_lines</abbr></a></td><td class="text-right">90</td></tr>
+       <tr><td><a href="includes/Updater.php.html#515"><abbr title="NewfoldLabs\WP\Module\Htaccess\Updater::write_file_atomic">write_file_atomic</abbr></a></td><td class="text-right">90</td></tr>
+       <tr><td><a href="includes/Scanner.php.html#682"><abbr title="NewfoldLabs\WP\Module\Htaccess\Scanner::get_current_body_hash">get_current_body_hash</abbr></a></td><td class="text-right">72</td></tr>
+       <tr><td><a href="includes/Scanner.php.html#723"><abbr title="NewfoldLabs\WP\Module\Htaccess\Scanner::compute_body_hash_from_lines">compute_body_hash_from_lines</abbr></a></td><td class="text-right">72</td></tr>
+       <tr><td><a href="includes/Scanner.php.html#763"><abbr title="NewfoldLabs\WP\Module\Htaccess\Scanner::canonicalize_body_for_hash_keep_markers">canonicalize_body_for_hash_keep_markers</abbr></a></td><td class="text-right">72</td></tr>
+       <tr><td><a href="includes/CLI.php.html#106"><abbr title="NewfoldLabs\WP\Module\Htaccess\CLI::status">status</abbr></a></td><td class="text-right">72</td></tr>
+       <tr><td><a href="includes/Api.php.html#272"><abbr title="NewfoldLabs\WP\Module\Htaccess\Api::unstash_early_fragment_by_id">unstash_early_fragment_by_id</abbr></a></td><td class="text-right">72</td></tr>
+       <tr><td><a href="includes/Updater.php.html#787"><abbr title="NewfoldLabs\WP\Module\Htaccess\Updater::canonicalize_body_for_hash_keep_markers">canonicalize_body_for_hash_keep_markers</abbr></a></td><td class="text-right">72</td></tr>
+       <tr><td><a href="includes/Manager.php.html#437"><abbr title="NewfoldLabs\WP\Module\Htaccess\Manager::collect_labels_from_saved_state">collect_labels_from_saved_state</abbr></a></td><td class="text-right">56</td></tr>
+       <tr><td><a href="includes/Scanner.php.html#587"><abbr title="NewfoldLabs\WP\Module\Htaccess\Scanner::copy_overwrite">copy_overwrite</abbr></a></td><td class="text-right">56</td></tr>
+       <tr><td><a href="includes/Updater.php.html#746"><abbr title="NewfoldLabs\WP\Module\Htaccess\Updater::slice_inside_markers_preserve_comments">slice_inside_markers_preserve_comments</abbr></a></td><td class="text-right">56</td></tr>
+       <tr><td><a href="includes/Api.php.html#94"><abbr title="NewfoldLabs\WP\Module\Htaccess\Api::register">register</abbr></a></td><td class="text-right">56</td></tr>
+       <tr><td><a href="includes/CLI.php.html#324"><abbr title="NewfoldLabs\WP\Module\Htaccess\CLI::restore">restore</abbr></a></td><td class="text-right">56</td></tr>
+       <tr><td><a href="includes/Cron.php.html#75"><abbr title="NewfoldLabs\WP\Module\Htaccess\Cron::execute">execute</abbr></a></td><td class="text-right">56</td></tr>
+       <tr><td><a href="includes/Updater.php.html#606"><abbr title="NewfoldLabs\WP\Module\Htaccess\Updater::compute_body_hash_from_lines">compute_body_hash_from_lines</abbr></a></td><td class="text-right">56</td></tr>
+       <tr><td><a href="includes/Context.php.html#333"><abbr title="NewfoldLabs\WP\Module\Htaccess\Context::detect_rewrite_capability">detect_rewrite_capability</abbr></a></td><td class="text-right">45</td></tr>
+       <tr><td><a href="includes/Registry.php.html#55"><abbr title="NewfoldLabs\WP\Module\Htaccess\Registry::register_many">register_many</abbr></a></td><td class="text-right">42</td></tr>
+       <tr><td><a href="includes/Scanner.php.html#463"><abbr title="NewfoldLabs\WP\Module\Htaccess\Scanner::get_htaccess_path">get_htaccess_path</abbr></a></td><td class="text-right">42</td></tr>
+       <tr><td><a href="includes/Updater.php.html#401"><abbr title="NewfoldLabs\WP\Module\Htaccess\Updater::get_htaccess_path">get_htaccess_path</abbr></a></td><td class="text-right">42</td></tr>
+       <tr><td><a href="includes/CLI.php.html#167"><abbr title="NewfoldLabs\WP\Module\Htaccess\CLI::diagnose">diagnose</abbr></a></td><td class="text-right">30</td></tr>
+       <tr><td><a href="includes/Updater.php.html#583"><abbr title="NewfoldLabs\WP\Module\Htaccess\Updater::scan_for_issues">scan_for_issues</abbr></a></td><td class="text-right">30</td></tr>
+       <tr><td><a href="includes/CLI.php.html#424"><abbr title="NewfoldLabs\WP\Module\Htaccess\CLI::get_enabled_fragments">get_enabled_fragments</abbr></a></td><td class="text-right">30</td></tr>
+       <tr><td><a href="includes/Manager.php.html#790"><abbr title="NewfoldLabs\WP\Module\Htaccess\Manager::resolve_htaccess_path">resolve_htaccess_path</abbr></a></td><td class="text-right">30</td></tr>
+       <tr><td><a href="includes/Api.php.html#187"><abbr title="NewfoldLabs\WP\Module\Htaccess\Api::fragment_reason_label">fragment_reason_label</abbr></a></td><td class="text-right">30</td></tr>
+       <tr><td><a href="includes/Manager.php.html#717"><abbr title="NewfoldLabs\WP\Module\Htaccess\Manager::collect_legacy_marker_labels">collect_legacy_marker_labels</abbr></a></td><td class="text-right">30</td></tr>
+       <tr><td><a href="includes/Validator.php.html#256"><abbr title="NewfoldLabs\WP\Module\Htaccess\Validator::check_duplicate_exclusive_blocks">check_duplicate_exclusive_blocks</abbr></a></td><td class="text-right">30</td></tr>
+       <tr><td><a href="includes/Updater.php.html#692"><abbr title="NewfoldLabs\WP\Module\Htaccess\Updater::inject_or_replace_managed_block">inject_or_replace_managed_block</abbr></a></td><td class="text-right">30</td></tr>
+       <tr><td><a href="includes/Context.php.html#93"><abbr title="NewfoldLabs\WP\Module\Htaccess\Context::from_wp">from_wp</abbr></a></td><td class="text-right">22</td></tr>
+       <tr><td><a href="includes/Manager.php.html#679"><abbr title="NewfoldLabs\WP\Module\Htaccess\Manager::save_state_full">save_state_full</abbr></a></td><td class="text-right">20</td></tr>
+       <tr><td><a href="includes/Manager.php.html#658"><abbr title="NewfoldLabs\WP\Module\Htaccess\Manager::load_saved_state">load_saved_state</abbr></a></td><td class="text-right">20</td></tr>
+       <tr><td><a href="includes/Updater.php.html#496"><abbr title="NewfoldLabs\WP\Module\Htaccess\Updater::read_file">read_file</abbr></a></td><td class="text-right">20</td></tr>
+       <tr><td><a href="includes/Manager.php.html#467"><abbr title="NewfoldLabs\WP\Module\Htaccess\Manager::read_current_htaccess">read_current_htaccess</abbr></a></td><td class="text-right">20</td></tr>
+       <tr><td><a href="includes/Scanner.php.html#395"><abbr title="NewfoldLabs\WP\Module\Htaccess\Scanner::extract_hash_from_lines">extract_hash_from_lines</abbr></a></td><td class="text-right">20</td></tr>
+       <tr><td><a href="includes/CLI.php.html#390"><abbr title="NewfoldLabs\WP\Module\Htaccess\CLI::list_backups">list_backups</abbr></a></td><td class="text-right">20</td></tr>
+       <tr><td><a href="includes/Updater.php.html#649"><abbr title="NewfoldLabs\WP\Module\Htaccess\Updater::get_current_body_hash">get_current_body_hash</abbr></a></td><td class="text-right">20</td></tr>
+       <tr><td><a href="includes/CLI.php.html#209"><abbr title="NewfoldLabs\WP\Module\Htaccess\CLI::scan">scan</abbr></a></td><td class="text-right">20</td></tr>
+       <tr><td><a href="includes/Manager.php.html#216"><abbr title="NewfoldLabs\WP\Module\Htaccess\Manager::maybe_apply_on_shutdown">maybe_apply_on_shutdown</abbr></a></td><td class="text-right">20</td></tr>
+       <tr><td><a href="includes/Manager.php.html#172"><abbr title="NewfoldLabs\WP\Module\Htaccess\Manager::maybe_queue_on_option">maybe_queue_on_option</abbr></a></td><td class="text-right">20</td></tr>
+       <tr><td><a href="includes/Scanner.php.html#550"><abbr title="NewfoldLabs\WP\Module\Htaccess\Scanner::probe_http_status">probe_http_status</abbr></a></td><td class="text-right">20</td></tr>
+       <tr><td><a href="includes/Manager.php.html#108"><abbr title="NewfoldLabs\WP\Module\Htaccess\Manager::boot">boot</abbr></a></td><td class="text-right">20</td></tr>
+       <tr><td><a href="includes/Cron.php.html#56"><abbr title="NewfoldLabs\WP\Module\Htaccess\Cron::ensure_scheduled">ensure_scheduled</abbr></a></td><td class="text-right">20</td></tr>
+       <tr><td><a href="includes/Context.php.html#160"><abbr title="NewfoldLabs\WP\Module\Htaccess\Context::detect_active_plugins">detect_active_plugins</abbr></a></td><td class="text-right">14</td></tr>
+       <tr><td><a href="includes/Registry.php.html#174"><abbr title="NewfoldLabs\WP\Module\Htaccess\Registry::enabled_fragments">enabled_fragments</abbr></a></td><td class="text-right">12</td></tr>
+       <tr><td><a href="includes/Updater.php.html#423"><abbr title="NewfoldLabs\WP\Module\Htaccess\Updater::ensure_wp_file_helpers">ensure_wp_file_helpers</abbr></a></td><td class="text-right">12</td></tr>
+       <tr><td><a href="includes/Updater.php.html#378"><abbr title="NewfoldLabs\WP\Module\Htaccess\Updater::build_block_lines">build_block_lines</abbr></a></td><td class="text-right">12</td></tr>
+       <tr><td><a href="includes/Scanner.php.html#489"><abbr title="NewfoldLabs\WP\Module\Htaccess\Scanner::ensure_wp_file_helpers">ensure_wp_file_helpers</abbr></a></td><td class="text-right">12</td></tr>
+       <tr><td><a href="includes/Scanner.php.html#372"><abbr title="NewfoldLabs\WP\Module\Htaccess\Scanner::list_backups">list_backups</abbr></a></td><td class="text-right">12</td></tr>
+       <tr><td><a href="includes/Api.php.html#57"><abbr title="NewfoldLabs\WP\Module\Htaccess\Api::set_manager">set_manager</abbr></a></td><td class="text-right">12</td></tr>
+       <tr><td><a href="includes/Scanner.php.html#237"><abbr title="NewfoldLabs\WP\Module\Htaccess\Scanner::remediate">remediate</abbr></a></td><td class="text-right">12</td></tr>
+       <tr><td><a href="includes/CLI.php.html#510"><abbr title="NewfoldLabs\WP\Module\Htaccess\CLI::maybe_strict_halt">maybe_strict_halt</abbr></a></td><td class="text-right">12</td></tr>
+       <tr><td><a href="includes/Api.php.html#126"><abbr title="NewfoldLabs\WP\Module\Htaccess\Api::unregister">unregister</abbr></a></td><td class="text-right">12</td></tr>
+       <tr><td><a href="includes/CLI.php.html#69"><abbr title="NewfoldLabs\WP\Module\Htaccess\CLI::__construct">__construct</abbr></a></td><td class="text-right">12</td></tr>
+       <tr><td><a href="includes/CLI.php.html#290"><abbr title="NewfoldLabs\WP\Module\Htaccess\CLI::remediate">remediate</abbr></a></td><td class="text-right">12</td></tr>
+       <tr><td><a href="includes/CLI.php.html#410"><abbr title="NewfoldLabs\WP\Module\Htaccess\CLI::ctx">ctx</abbr></a></td><td class="text-right">12</td></tr>
+       <tr><td><a href="includes/CLI.php.html#455"><abbr title="NewfoldLabs\WP\Module\Htaccess\CLI::get">get</abbr></a></td><td class="text-right">12</td></tr>
+       <tr><td><a href="includes/CLI.php.html#466"><abbr title="NewfoldLabs\WP\Module\Htaccess\CLI::normalize_format">normalize_format</abbr></a></td><td class="text-right">12</td></tr>
+       <tr><td><a href="includes/CLI.php.html#479"><abbr title="NewfoldLabs\WP\Module\Htaccess\CLI::print_rows">print_rows</abbr></a></td><td class="text-right">12</td></tr>
+       <tr><td><a href="includes/CLI.php.html#497"><abbr title="NewfoldLabs\WP\Module\Htaccess\CLI::default_version">default_version</abbr></a></td><td class="text-right">12</td></tr>
+       <tr><td><a href="includes/Composer.php.html#148"><abbr title="NewfoldLabs\WP\Module\Htaccess\Composer::detect_host">detect_host</abbr></a></td><td class="text-right">12</td></tr>
+       <tr><td><a href="includes/Manager.php.html#336"><abbr title="NewfoldLabs\WP\Module\Htaccess\Manager::remove_canonical_block">remove_canonical_block</abbr></a></td><td class="text-right">12</td></tr>
+       <tr><td><a href="includes/Registry.php.html#94"><abbr title="NewfoldLabs\WP\Module\Htaccess\Registry::unregister_many">unregister_many</abbr></a></td><td class="text-right">12</td></tr>
+       <tr><td><a href="includes/Validator.php.html#278"><abbr title="NewfoldLabs\WP\Module\Htaccess\Validator::check_forbidden_handlers_scoped">check_forbidden_handlers_scoped</abbr></a></td><td class="text-right">9</td></tr>
+       <tr><td><a href="includes/Text.php.html#107"><abbr title="NewfoldLabs\WP\Module\Htaccess\Text::extract_from_markers_raw">extract_from_markers_raw</abbr></a></td><td class="text-right">8</td></tr>
+       <tr><td><a href="includes/CLI.php.html#443"><abbr title="NewfoldLabs\WP\Module\Htaccess\CLI::yn">yn</abbr></a></td><td class="text-right">6</td></tr>
+       <tr><td><a href="includes/CLI.php.html#261"><abbr title="NewfoldLabs\WP\Module\Htaccess\CLI::apply">apply</abbr></a></td><td class="text-right">6</td></tr>
+       <tr><td><a href="includes/Api.php.html#165"><abbr title="NewfoldLabs\WP\Module\Htaccess\Api::queue_apply">queue_apply</abbr></a></td><td class="text-right">6</td></tr>
+       <tr><td><a href="includes/Api.php.html#253"><abbr title="NewfoldLabs\WP\Module\Htaccess\Api::stash_early_fragment">stash_early_fragment</abbr></a></td><td class="text-right">6</td></tr>
+       <tr><td><a href="includes/Updater.php.html#730"><abbr title="NewfoldLabs\WP\Module\Htaccess\Updater::get_marker_regex_pair">get_marker_regex_pair</abbr></a></td><td class="text-right">6</td></tr>
+       <tr><td><a href="includes/Manager.php.html#702"><abbr title="NewfoldLabs\WP\Module\Htaccess\Manager::ensure_wp_file_helpers">ensure_wp_file_helpers</abbr></a></td><td class="text-right">6</td></tr>
+       <tr><td><a href="includes/Updater.php.html#34"><abbr title="NewfoldLabs\WP\Module\Htaccess\Updater::__construct">__construct</abbr></a></td><td class="text-right">6</td></tr>
+       <tr><td><a href="includes/Manager.php.html#246"><abbr title="NewfoldLabs\WP\Module\Htaccess\Manager::acquire_lock">acquire_lock</abbr></a></td><td class="text-right">6</td></tr>
+       <tr><td><a href="includes/Manager.php.html#150"><abbr title="NewfoldLabs\WP\Module\Htaccess\Manager::queue_apply">queue_apply</abbr></a></td><td class="text-right">6</td></tr>
+       <tr><td><a href="includes/Updater.php.html#479"><abbr title="NewfoldLabs\WP\Module\Htaccess\Updater::restore_backup">restore_backup</abbr></a></td><td class="text-right">6</td></tr>
+       <tr><td><a href="includes/Cron.php.html#43"><abbr title="NewfoldLabs\WP\Module\Htaccess\Cron::register">register</abbr></a></td><td class="text-right">6</td></tr>
+       <tr><td><a href="includes/Scanner.php.html#57"><abbr title="NewfoldLabs\WP\Module\Htaccess\Scanner::__construct">__construct</abbr></a></td><td class="text-right">6</td></tr>
+       <tr><td><a href="includes/Validator.php.html#95"><abbr title="NewfoldLabs\WP\Module\Htaccess\Validator::remediate">remediate</abbr></a></td><td class="text-right">5</td></tr>
+       <tr><td><a href="includes/Composer.php.html#43"><abbr title="NewfoldLabs\WP\Module\Htaccess\Composer::__construct">__construct</abbr></a></td><td class="text-right">4</td></tr>
+       <tr><td><a href="includes/Composer.php.html#121"><abbr title="NewfoldLabs\WP\Module\Htaccess\Composer::build_header">build_header</abbr></a></td><td class="text-right">3</td></tr>
+       <tr><td><a href="includes/Composer.php.html#164"><abbr title="NewfoldLabs\WP\Module\Htaccess\Composer::utc_now_iso8601">utc_now_iso8601</abbr></a></td><td class="text-right">2</td></tr>
+       <tr><td><a href="includes/Context.php.html#360"><abbr title="NewfoldLabs\WP\Module\Htaccess\Context::htaccess_path">htaccess_path</abbr></a></td><td class="text-right">2</td></tr>
+
+       </tbody>
+      </table>
+     </div>
+    </div>
+   </div>
+   <footer>
+    <hr/>
+    <p>
+     <small>Generated by <a href="https://github.com/sebastianbergmann/php-code-coverage" target="_top">php-code-coverage 9.2.32</a> using <a href="https://secure.php.net/" target="_top">PHP 7.4.33</a> at Thu Feb 5 7:09:49 UTC 2026.</small>
+    </p>
+   </footer>
+  </div>
+  <script src="_js/jquery.min.js?v=9.2.32" type="text/javascript"></script>
+  <script src="_js/d3.min.js?v=9.2.32" type="text/javascript"></script>
+  <script src="_js/nv.d3.min.js?v=9.2.32" type="text/javascript"></script>
+  <script type="text/javascript">
+$(document).ready(function() {
+  nv.addGraph(function() {
+    var chart = nv.models.multiBarChart();
+    chart.tooltips(false)
+      .showControls(false)
+      .showLegend(false)
+      .reduceXTicks(false)
+      .staggerLabels(true)
+      .yAxis.tickFormat(d3.format('d'));
+
+    d3.select('#classCoverageDistribution svg')
+      .datum(getCoverageDistributionData([6,1,0,0,0,0,0,0,3,1,1,2], "Class Coverage"))
+      .transition().duration(500).call(chart);
+
+    nv.utils.windowResize(chart.update);
+
+    return chart;
+  });
+
+  nv.addGraph(function() {
+    var chart = nv.models.multiBarChart();
+    chart.tooltips(false)
+      .showControls(false)
+      .showLegend(false)
+      .reduceXTicks(false)
+      .staggerLabels(true)
+      .yAxis.tickFormat(d3.format('d'));
+
+    d3.select('#methodCoverageDistribution svg')
+      .datum(getCoverageDistributionData([96,0,1,0,0,0,3,2,2,3,6,36], "Method Coverage"))
+      .transition().duration(500).call(chart);
+
+    nv.utils.windowResize(chart.update);
+
+    return chart;
+  });
+
+  function getCoverageDistributionData(data, label) {
+    var labels = [
+      '0%',
+      '0-10%',
+      '10-20%',
+      '20-30%',
+      '30-40%',
+      '40-50%',
+      '50-60%',
+      '60-70%',
+      '70-80%',
+      '80-90%',
+      '90-100%',
+      '100%'
+    ];
+    var values = [];
+    $.each(labels, function(key) {
+      values.push({x: labels[key], y: data[key]});
+    });
+
+    return [
+      {
+        key: label,
+        values: values,
+        color: "#4572A7"
+      }
+    ];
+  }
+  nv.addGraph(function() {
+    var chart = nv.models.scatterChart()
+      .showDistX(true)
+      .showDistY(true)
+      .showLegend(false)
+      .forceX([0, 100]);
+    chart.tooltipContent(function(graph) {
+      return '<p>' + graph.point.class + '</p>';
+    });
+
+    chart.xAxis.axisLabel('Code Coverage (in percent)');
+    chart.yAxis.axisLabel('Cyclomatic Complexity');
+
+    d3.select('#classComplexity svg')
+      .datum(getComplexityData([[4.878048780487805,45,"<a href=\"includes\/Api.php.html#18\">NewfoldLabs\\WP\\Module\\Htaccess\\Api<\/a>"],[0,61,"<a href=\"includes\/CLI.php.html#36\">NewfoldLabs\\WP\\Module\\Htaccess\\CLI<\/a>"],[76.92307692307693,23,"<a href=\"includes\/Composer.php.html#22\">NewfoldLabs\\WP\\Module\\Htaccess\\Composer<\/a>"],[100,2,"<a href=\"includes\/Config.php.html#9\">NewfoldLabs\\WP\\Module\\Htaccess\\Config<\/a>"],[70.23809523809523,51,"<a href=\"includes\/Context.php.html#20\">NewfoldLabs\\WP\\Module\\Htaccess\\Context<\/a>"],[0,13,"<a href=\"includes\/Cron.php.html#20\">NewfoldLabs\\WP\\Module\\Htaccess\\Cron<\/a>"],[0,138,"<a href=\"includes\/Manager.php.html#28\">NewfoldLabs\\WP\\Module\\Htaccess\\Manager<\/a>"],[0,19,"<a href=\"includes\/Migrator.php.html#9\">NewfoldLabs\\WP\\Module\\Htaccess\\Migrator<\/a>"],[100,4,"<a href=\"includes\/Options.php.html#7\">NewfoldLabs\\WP\\Module\\Htaccess\\Options<\/a>"],[70,36,"<a href=\"includes\/Registry.php.html#15\">NewfoldLabs\\WP\\Module\\Htaccess\\Registry<\/a>"],[0,123,"<a href=\"includes\/Scanner.php.html#26\">NewfoldLabs\\WP\\Module\\Htaccess\\Scanner<\/a>"],[92.72727272727272,27,"<a href=\"includes\/Text.php.html#9\">NewfoldLabs\\WP\\Module\\Htaccess\\Text<\/a>"],[0,135,"<a href=\"includes\/Updater.php.html#18\">NewfoldLabs\\WP\\Module\\Htaccess\\Updater<\/a>"],[80.95238095238095,43,"<a href=\"includes\/Validator.php.html#22\">NewfoldLabs\\WP\\Module\\Htaccess\\Validator<\/a>"]], 'Class Complexity'))
+      .transition()
+      .duration(500)
+      .call(chart);
+
+    nv.utils.windowResize(chart.update);
+
+    return chart;
+  });
+
+  nv.addGraph(function() {
+    var chart = nv.models.scatterChart()
+      .showDistX(true)
+      .showDistY(true)
+      .showLegend(false)
+      .forceX([0, 100]);
+    chart.tooltipContent(function(graph) {
+      return '<p>' + graph.point.class + '</p>';
+    });
+
+    chart.xAxis.axisLabel('Code Coverage (in percent)');
+    chart.yAxis.axisLabel('Method Complexity');
+
+    d3.select('#methodComplexity svg')
+      .datum(getComplexityData([[0,1,"<a href=\"includes\/Api.php.html#42\">NewfoldLabs\\WP\\Module\\Htaccess\\Api::set_registry<\/a>"],[0,3,"<a href=\"includes\/Api.php.html#57\">NewfoldLabs\\WP\\Module\\Htaccess\\Api::set_manager<\/a>"],[100,2,"<a href=\"includes\/Api.php.html#78\">NewfoldLabs\\WP\\Module\\Htaccess\\Api::registry<\/a>"],[0,7,"<a href=\"includes\/Api.php.html#94\">NewfoldLabs\\WP\\Module\\Htaccess\\Api::register<\/a>"],[0,3,"<a href=\"includes\/Api.php.html#126\">NewfoldLabs\\WP\\Module\\Htaccess\\Api::unregister<\/a>"],[100,1,"<a href=\"includes\/Api.php.html#153\">NewfoldLabs\\WP\\Module\\Htaccess\\Api::enabled_fragments<\/a>"],[0,2,"<a href=\"includes\/Api.php.html#165\">NewfoldLabs\\WP\\Module\\Htaccess\\Api::queue_apply<\/a>"],[0,5,"<a href=\"includes\/Api.php.html#187\">NewfoldLabs\\WP\\Module\\Htaccess\\Api::fragment_reason_label<\/a>"],[0,11,"<a href=\"includes\/Api.php.html#207\">NewfoldLabs\\WP\\Module\\Htaccess\\Api::flush_early_fragments_to_manager<\/a>"],[0,2,"<a href=\"includes\/Api.php.html#253\">NewfoldLabs\\WP\\Module\\Htaccess\\Api::stash_early_fragment<\/a>"],[0,8,"<a href=\"includes\/Api.php.html#272\">NewfoldLabs\\WP\\Module\\Htaccess\\Api::unstash_early_fragment_by_id<\/a>"],[0,3,"<a href=\"includes\/CLI.php.html#69\">NewfoldLabs\\WP\\Module\\Htaccess\\CLI::__construct<\/a>"],[0,8,"<a href=\"includes\/CLI.php.html#106\">NewfoldLabs\\WP\\Module\\Htaccess\\CLI::status<\/a>"],[0,5,"<a href=\"includes\/CLI.php.html#167\">NewfoldLabs\\WP\\Module\\Htaccess\\CLI::diagnose<\/a>"],[0,4,"<a href=\"includes\/CLI.php.html#209\">NewfoldLabs\\WP\\Module\\Htaccess\\CLI::scan<\/a>"],[0,2,"<a href=\"includes\/CLI.php.html#261\">NewfoldLabs\\WP\\Module\\Htaccess\\CLI::apply<\/a>"],[0,3,"<a href=\"includes\/CLI.php.html#290\">NewfoldLabs\\WP\\Module\\Htaccess\\CLI::remediate<\/a>"],[0,7,"<a href=\"includes\/CLI.php.html#324\">NewfoldLabs\\WP\\Module\\Htaccess\\CLI::restore<\/a>"],[0,4,"<a href=\"includes\/CLI.php.html#390\">NewfoldLabs\\WP\\Module\\Htaccess\\CLI::list_backups<\/a>"],[0,3,"<a href=\"includes\/CLI.php.html#410\">NewfoldLabs\\WP\\Module\\Htaccess\\CLI::ctx<\/a>"],[0,5,"<a href=\"includes\/CLI.php.html#424\">NewfoldLabs\\WP\\Module\\Htaccess\\CLI::get_enabled_fragments<\/a>"],[0,2,"<a href=\"includes\/CLI.php.html#443\">NewfoldLabs\\WP\\Module\\Htaccess\\CLI::yn<\/a>"],[0,3,"<a href=\"includes\/CLI.php.html#455\">NewfoldLabs\\WP\\Module\\Htaccess\\CLI::get<\/a>"],[0,3,"<a href=\"includes\/CLI.php.html#466\">NewfoldLabs\\WP\\Module\\Htaccess\\CLI::normalize_format<\/a>"],[0,3,"<a href=\"includes\/CLI.php.html#479\">NewfoldLabs\\WP\\Module\\Htaccess\\CLI::print_rows<\/a>"],[0,3,"<a href=\"includes\/CLI.php.html#497\">NewfoldLabs\\WP\\Module\\Htaccess\\CLI::default_version<\/a>"],[0,3,"<a href=\"includes\/CLI.php.html#510\">NewfoldLabs\\WP\\Module\\Htaccess\\CLI::maybe_strict_halt<\/a>"],[50,3,"<a href=\"includes\/Composer.php.html#43\">NewfoldLabs\\WP\\Module\\Htaccess\\Composer::__construct<\/a>"],[100,1,"<a href=\"includes\/Composer.php.html#57\">NewfoldLabs\\WP\\Module\\Htaccess\\Composer::set_version<\/a>"],[100,1,"<a href=\"includes\/Composer.php.html#69\">NewfoldLabs\\WP\\Module\\Htaccess\\Composer::set_host<\/a>"],[93.33333333333333,5,"<a href=\"includes\/Composer.php.html#86\">NewfoldLabs\\WP\\Module\\Htaccess\\Composer::compose<\/a>"],[83.33333333333334,3,"<a href=\"includes\/Composer.php.html#121\">NewfoldLabs\\WP\\Module\\Htaccess\\Composer::build_header<\/a>"],[0,3,"<a href=\"includes\/Composer.php.html#148\">NewfoldLabs\\WP\\Module\\Htaccess\\Composer::detect_host<\/a>"],[50,2,"<a href=\"includes\/Composer.php.html#164\">NewfoldLabs\\WP\\Module\\Htaccess\\Composer::utc_now_iso8601<\/a>"],[91.66666666666666,5,"<a href=\"includes\/Composer.php.html#184\">NewfoldLabs\\WP\\Module\\Htaccess\\Composer::compose_body_only<\/a>"],[100,2,"<a href=\"includes\/Config.php.html#25\">NewfoldLabs\\WP\\Module\\Htaccess\\Config::marker<\/a>"],[78.57142857142857,19,"<a href=\"includes\/Context.php.html#93\">NewfoldLabs\\WP\\Module\\Htaccess\\Context::from_wp<\/a>"],[58.82352941176471,9,"<a href=\"includes\/Context.php.html#160\">NewfoldLabs\\WP\\Module\\Htaccess\\Context::detect_active_plugins<\/a>"],[0,1,"<a href=\"includes\/Context.php.html#199\">NewfoldLabs\\WP\\Module\\Htaccess\\Context::is_plugin_active<\/a>"],[100,3,"<a href=\"includes\/Context.php.html#212\">NewfoldLabs\\WP\\Module\\Htaccess\\Context::setting<\/a>"],[100,1,"<a href=\"includes\/Context.php.html#230\">NewfoldLabs\\WP\\Module\\Htaccess\\Context::home_url<\/a>"],[100,1,"<a href=\"includes\/Context.php.html#244\">NewfoldLabs\\WP\\Module\\Htaccess\\Context::site_url<\/a>"],[100,1,"<a href=\"includes\/Context.php.html#257\">NewfoldLabs\\WP\\Module\\Htaccess\\Context::host<\/a>"],[100,1,"<a href=\"includes\/Context.php.html#270\">NewfoldLabs\\WP\\Module\\Htaccess\\Context::home_path<\/a>"],[100,1,"<a href=\"includes\/Context.php.html#283\">NewfoldLabs\\WP\\Module\\Htaccess\\Context::is_multisite<\/a>"],[100,1,"<a href=\"includes\/Context.php.html#296\">NewfoldLabs\\WP\\Module\\Htaccess\\Context::is_cli<\/a>"],[100,1,"<a href=\"includes\/Context.php.html#309\">NewfoldLabs\\WP\\Module\\Htaccess\\Context::is_apache_like<\/a>"],[100,1,"<a href=\"includes\/Context.php.html#322\">NewfoldLabs\\WP\\Module\\Htaccess\\Context::active_plugins<\/a>"],[16.666666666666664,8,"<a href=\"includes\/Context.php.html#333\">NewfoldLabs\\WP\\Module\\Htaccess\\Context::detect_rewrite_capability<\/a>"],[66.66666666666666,2,"<a href=\"includes\/Context.php.html#360\">NewfoldLabs\\WP\\Module\\Htaccess\\Context::htaccess_path<\/a>"],[100,1,"<a href=\"includes\/Context.php.html#374\">NewfoldLabs\\WP\\Module\\Htaccess\\Context::to_array<\/a>"],[0,2,"<a href=\"includes\/Cron.php.html#43\">NewfoldLabs\\WP\\Module\\Htaccess\\Cron::register<\/a>"],[0,4,"<a href=\"includes\/Cron.php.html#56\">NewfoldLabs\\WP\\Module\\Htaccess\\Cron::ensure_scheduled<\/a>"],[0,7,"<a href=\"includes\/Cron.php.html#75\">NewfoldLabs\\WP\\Module\\Htaccess\\Cron::execute<\/a>"],[0,1,"<a href=\"includes\/Manager.php.html#97\">NewfoldLabs\\WP\\Module\\Htaccess\\Manager::__construct<\/a>"],[0,4,"<a href=\"includes\/Manager.php.html#108\">NewfoldLabs\\WP\\Module\\Htaccess\\Manager::boot<\/a>"],[0,2,"<a href=\"includes\/Manager.php.html#150\">NewfoldLabs\\WP\\Module\\Htaccess\\Manager::queue_apply<\/a>"],[0,4,"<a href=\"includes\/Manager.php.html#172\">NewfoldLabs\\WP\\Module\\Htaccess\\Manager::maybe_queue_on_option<\/a>"],[0,9,"<a href=\"includes\/Manager.php.html#185\">NewfoldLabs\\WP\\Module\\Htaccess\\Manager::is_safe_context<\/a>"],[0,1,"<a href=\"includes\/Manager.php.html#205\">NewfoldLabs\\WP\\Module\\Htaccess\\Manager::mark_dirty<\/a>"],[0,4,"<a href=\"includes\/Manager.php.html#216\">NewfoldLabs\\WP\\Module\\Htaccess\\Manager::maybe_apply_on_shutdown<\/a>"],[0,1,"<a href=\"includes\/Manager.php.html#234\">NewfoldLabs\\WP\\Module\\Htaccess\\Manager::on_plugin_deactivation<\/a>"],[0,2,"<a href=\"includes\/Manager.php.html#246\">NewfoldLabs\\WP\\Module\\Htaccess\\Manager::acquire_lock<\/a>"],[0,1,"<a href=\"includes\/Manager.php.html#265\">NewfoldLabs\\WP\\Module\\Htaccess\\Manager::release_lock<\/a>"],[0,9,"<a href=\"includes\/Manager.php.html#281\">NewfoldLabs\\WP\\Module\\Htaccess\\Manager::apply_canonical_state<\/a>"],[0,3,"<a href=\"includes\/Manager.php.html#336\">NewfoldLabs\\WP\\Module\\Htaccess\\Manager::remove_canonical_block<\/a>"],[0,14,"<a href=\"includes\/Manager.php.html#363\">NewfoldLabs\\WP\\Module\\Htaccess\\Manager::reconcile_saved_block<\/a>"],[0,7,"<a href=\"includes\/Manager.php.html#437\">NewfoldLabs\\WP\\Module\\Htaccess\\Manager::collect_labels_from_saved_state<\/a>"],[0,4,"<a href=\"includes\/Manager.php.html#467\">NewfoldLabs\\WP\\Module\\Htaccess\\Manager::read_current_htaccess<\/a>"],[0,1,"<a href=\"includes\/Manager.php.html#484\">NewfoldLabs\\WP\\Module\\Htaccess\\Manager::container<\/a>"],[0,19,"<a href=\"includes\/Manager.php.html#500\">NewfoldLabs\\WP\\Module\\Htaccess\\Manager::persist_fragment_state<\/a>"],[0,11,"<a href=\"includes\/Manager.php.html#575\">NewfoldLabs\\WP\\Module\\Htaccess\\Manager::remove_persisted_fragment<\/a>"],[0,10,"<a href=\"includes\/Manager.php.html#619\">NewfoldLabs\\WP\\Module\\Htaccess\\Manager::compose_from_saved_blocks<\/a>"],[0,4,"<a href=\"includes\/Manager.php.html#658\">NewfoldLabs\\WP\\Module\\Htaccess\\Manager::load_saved_state<\/a>"],[0,4,"<a href=\"includes\/Manager.php.html#679\">NewfoldLabs\\WP\\Module\\Htaccess\\Manager::save_state_full<\/a>"],[0,2,"<a href=\"includes\/Manager.php.html#702\">NewfoldLabs\\WP\\Module\\Htaccess\\Manager::ensure_wp_file_helpers<\/a>"],[0,5,"<a href=\"includes\/Manager.php.html#717\">NewfoldLabs\\WP\\Module\\Htaccess\\Manager::collect_legacy_marker_labels<\/a>"],[0,11,"<a href=\"includes\/Manager.php.html#751\">NewfoldLabs\\WP\\Module\\Htaccess\\Manager::enabled_non_wp_fragments<\/a>"],[0,5,"<a href=\"includes\/Manager.php.html#790\">NewfoldLabs\\WP\\Module\\Htaccess\\Manager::resolve_htaccess_path<\/a>"],[0,18,"<a href=\"includes\/Migrator.php.html#23\">NewfoldLabs\\WP\\Module\\Htaccess\\Migrator::remove_legacy_blocks<\/a>"],[0,1,"<a href=\"includes\/Migrator.php.html#127\">NewfoldLabs\\WP\\Module\\Htaccess\\Migrator::postprocess<\/a>"],[100,3,"<a href=\"includes\/Options.php.html#34\">NewfoldLabs\\WP\\Module\\Htaccess\\Options::get_option_name<\/a>"],[100,1,"<a href=\"includes\/Options.php.html#48\">NewfoldLabs\\WP\\Module\\Htaccess\\Options::get_all_options<\/a>"],[100,3,"<a href=\"includes\/Registry.php.html#35\">NewfoldLabs\\WP\\Module\\Htaccess\\Registry::register<\/a>"],[0,6,"<a href=\"includes\/Registry.php.html#55\">NewfoldLabs\\WP\\Module\\Htaccess\\Registry::register_many<\/a>"],[100,3,"<a href=\"includes\/Registry.php.html#76\">NewfoldLabs\\WP\\Module\\Htaccess\\Registry::unregister<\/a>"],[0,3,"<a href=\"includes\/Registry.php.html#94\">NewfoldLabs\\WP\\Module\\Htaccess\\Registry::unregister_many<\/a>"],[100,2,"<a href=\"includes\/Registry.php.html#113\">NewfoldLabs\\WP\\Module\\Htaccess\\Registry::has<\/a>"],[100,3,"<a href=\"includes\/Registry.php.html#126\">NewfoldLabs\\WP\\Module\\Htaccess\\Registry::get<\/a>"],[100,1,"<a href=\"includes\/Registry.php.html#138\">NewfoldLabs\\WP\\Module\\Htaccess\\Registry::all<\/a>"],[100,1,"<a href=\"includes\/Registry.php.html#149\">NewfoldLabs\\WP\\Module\\Htaccess\\Registry::ids<\/a>"],[100,1,"<a href=\"includes\/Registry.php.html#160\">NewfoldLabs\\WP\\Module\\Htaccess\\Registry::count<\/a>"],[78.94736842105263,11,"<a href=\"includes\/Registry.php.html#174\">NewfoldLabs\\WP\\Module\\Htaccess\\Registry::enabled_fragments<\/a>"],[100,1,"<a href=\"includes\/Registry.php.html#214\">NewfoldLabs\\WP\\Module\\Htaccess\\Registry::clear<\/a>"],[100,1,"<a href=\"includes\/Registry.php.html#226\">NewfoldLabs\\WP\\Module\\Htaccess\\Registry::normalize_id<\/a>"],[0,2,"<a href=\"includes\/Scanner.php.html#57\">NewfoldLabs\\WP\\Module\\Htaccess\\Scanner::__construct<\/a>"],[0,9,"<a href=\"includes\/Scanner.php.html#78\">NewfoldLabs\\WP\\Module\\Htaccess\\Scanner::diagnose<\/a>"],[0,10,"<a href=\"includes\/Scanner.php.html#152\">NewfoldLabs\\WP\\Module\\Htaccess\\Scanner::scan<\/a>"],[0,3,"<a href=\"includes\/Scanner.php.html#237\">NewfoldLabs\\WP\\Module\\Htaccess\\Scanner::remediate<\/a>"],[0,13,"<a href=\"includes\/Scanner.php.html#278\">NewfoldLabs\\WP\\Module\\Htaccess\\Scanner::restore_latest_backup_verified<\/a>"],[0,3,"<a href=\"includes\/Scanner.php.html#372\">NewfoldLabs\\WP\\Module\\Htaccess\\Scanner::list_backups<\/a>"],[0,4,"<a href=\"includes\/Scanner.php.html#395\">NewfoldLabs\\WP\\Module\\Htaccess\\Scanner::extract_hash_from_lines<\/a>"],[0,9,"<a href=\"includes\/Scanner.php.html#420\">NewfoldLabs\\WP\\Module\\Htaccess\\Scanner::extract_marker_lines<\/a>"],[0,6,"<a href=\"includes\/Scanner.php.html#463\">NewfoldLabs\\WP\\Module\\Htaccess\\Scanner::get_htaccess_path<\/a>"],[0,3,"<a href=\"includes\/Scanner.php.html#489\">NewfoldLabs\\WP\\Module\\Htaccess\\Scanner::ensure_wp_file_helpers<\/a>"],[0,11,"<a href=\"includes\/Scanner.php.html#503\">NewfoldLabs\\WP\\Module\\Htaccess\\Scanner::read_file<\/a>"],[0,4,"<a href=\"includes\/Scanner.php.html#550\">NewfoldLabs\\WP\\Module\\Htaccess\\Scanner::probe_http_status<\/a>"],[0,7,"<a href=\"includes\/Scanner.php.html#587\">NewfoldLabs\\WP\\Module\\Htaccess\\Scanner::copy_overwrite<\/a>"],[0,15,"<a href=\"includes\/Scanner.php.html#622\">NewfoldLabs\\WP\\Module\\Htaccess\\Scanner::scan_dir<\/a>"],[0,8,"<a href=\"includes\/Scanner.php.html#682\">NewfoldLabs\\WP\\Module\\Htaccess\\Scanner::get_current_body_hash<\/a>"],[0,8,"<a href=\"includes\/Scanner.php.html#723\">NewfoldLabs\\WP\\Module\\Htaccess\\Scanner::compute_body_hash_from_lines<\/a>"],[0,8,"<a href=\"includes\/Scanner.php.html#763\">NewfoldLabs\\WP\\Module\\Htaccess\\Scanner::canonicalize_body_for_hash_keep_markers<\/a>"],[100,2,"<a href=\"includes\/Text.php.html#20\">NewfoldLabs\\WP\\Module\\Htaccess\\Text::normalize_lf<\/a>"],[100,2,"<a href=\"includes\/Text.php.html#33\">NewfoldLabs\\WP\\Module\\Htaccess\\Text::trim_surrounding_blank_lines<\/a>"],[100,1,"<a href=\"includes\/Text.php.html#46\">NewfoldLabs\\WP\\Module\\Htaccess\\Text::ensure_single_trailing_newline<\/a>"],[100,1,"<a href=\"includes\/Text.php.html#58\">NewfoldLabs\\WP\\Module\\Htaccess\\Text::collapse_excess_blanks<\/a>"],[100,3,"<a href=\"includes\/Text.php.html#74\">NewfoldLabs\\WP\\Module\\Htaccess\\Text::strip_inner_markers_from_body<\/a>"],[84.21052631578947,8,"<a href=\"includes\/Text.php.html#107\">NewfoldLabs\\WP\\Module\\Htaccess\\Text::extract_from_markers_raw<\/a>"],[100,2,"<a href=\"includes\/Text.php.html#150\">NewfoldLabs\\WP\\Module\\Htaccess\\Text::extract_from_markers_text<\/a>"],[94.44444444444444,8,"<a href=\"includes\/Text.php.html#167\">NewfoldLabs\\WP\\Module\\Htaccess\\Text::canonicalize_managed_body_for_hash<\/a>"],[0,2,"<a href=\"includes\/Updater.php.html#34\">NewfoldLabs\\WP\\Module\\Htaccess\\Updater::__construct<\/a>"],[0,27,"<a href=\"includes\/Updater.php.html#60\">NewfoldLabs\\WP\\Module\\Htaccess\\Updater::apply_managed_block<\/a>"],[0,38,"<a href=\"includes\/Updater.php.html#229\">NewfoldLabs\\WP\\Module\\Htaccess\\Updater::apply_fragment_patches<\/a>"],[0,3,"<a href=\"includes\/Updater.php.html#378\">NewfoldLabs\\WP\\Module\\Htaccess\\Updater::build_block_lines<\/a>"],[0,6,"<a href=\"includes\/Updater.php.html#401\">NewfoldLabs\\WP\\Module\\Htaccess\\Updater::get_htaccess_path<\/a>"],[0,3,"<a href=\"includes\/Updater.php.html#423\">NewfoldLabs\\WP\\Module\\Htaccess\\Updater::ensure_wp_file_helpers<\/a>"],[0,1,"<a href=\"includes\/Updater.php.html#442\">NewfoldLabs\\WP\\Module\\Htaccess\\Updater::get_backup_path<\/a>"],[0,1,"<a href=\"includes\/Updater.php.html#460\">NewfoldLabs\\WP\\Module\\Htaccess\\Updater::refresh_single_backup<\/a>"],[0,2,"<a href=\"includes\/Updater.php.html#479\">NewfoldLabs\\WP\\Module\\Htaccess\\Updater::restore_backup<\/a>"],[0,4,"<a href=\"includes\/Updater.php.html#496\">NewfoldLabs\\WP\\Module\\Htaccess\\Updater::read_file<\/a>"],[0,9,"<a href=\"includes\/Updater.php.html#515\">NewfoldLabs\\WP\\Module\\Htaccess\\Updater::write_file_atomic<\/a>"],[0,5,"<a href=\"includes\/Updater.php.html#583\">NewfoldLabs\\WP\\Module\\Htaccess\\Updater::scan_for_issues<\/a>"],[0,7,"<a href=\"includes\/Updater.php.html#606\">NewfoldLabs\\WP\\Module\\Htaccess\\Updater::compute_body_hash_from_lines<\/a>"],[0,4,"<a href=\"includes\/Updater.php.html#649\">NewfoldLabs\\WP\\Module\\Htaccess\\Updater::get_current_body_hash<\/a>"],[0,1,"<a href=\"includes\/Updater.php.html#676\">NewfoldLabs\\WP\\Module\\Htaccess\\Updater::render_markered_block<\/a>"],[0,5,"<a href=\"includes\/Updater.php.html#692\">NewfoldLabs\\WP\\Module\\Htaccess\\Updater::inject_or_replace_managed_block<\/a>"],[0,2,"<a href=\"includes\/Updater.php.html#730\">NewfoldLabs\\WP\\Module\\Htaccess\\Updater::get_marker_regex_pair<\/a>"],[0,7,"<a href=\"includes\/Updater.php.html#746\">NewfoldLabs\\WP\\Module\\Htaccess\\Updater::slice_inside_markers_preserve_comments<\/a>"],[0,8,"<a href=\"includes\/Updater.php.html#787\">NewfoldLabs\\WP\\Module\\Htaccess\\Updater::canonicalize_body_for_hash_keep_markers<\/a>"],[100,1,"<a href=\"includes\/Validator.php.html#38\">NewfoldLabs\\WP\\Module\\Htaccess\\Validator::reset<\/a>"],[90,2,"<a href=\"includes\/Validator.php.html#52\">NewfoldLabs\\WP\\Module\\Htaccess\\Validator::is_valid<\/a>"],[100,1,"<a href=\"includes\/Validator.php.html#77\">NewfoldLabs\\WP\\Module\\Htaccess\\Validator::get_errors<\/a>"],[80,5,"<a href=\"includes\/Validator.php.html#95\">NewfoldLabs\\WP\\Module\\Htaccess\\Validator::remediate<\/a>"],[92.85714285714286,7,"<a href=\"includes\/Validator.php.html#137\">NewfoldLabs\\WP\\Module\\Htaccess\\Validator::check_ifmodule_balance<\/a>"],[92.3076923076923,7,"<a href=\"includes\/Validator.php.html#178\">NewfoldLabs\\WP\\Module\\Htaccess\\Validator::check_begin_end_balance<\/a>"],[100,4,"<a href=\"includes\/Validator.php.html#212\">NewfoldLabs\\WP\\Module\\Htaccess\\Validator::check_rewrite_flag_brackets<\/a>"],[100,3,"<a href=\"includes\/Validator.php.html#233\">NewfoldLabs\\WP\\Module\\Htaccess\\Validator::is_forbidden_handler_line<\/a>"],[0,5,"<a href=\"includes\/Validator.php.html#256\">NewfoldLabs\\WP\\Module\\Htaccess\\Validator::check_duplicate_exclusive_blocks<\/a>"],[69.23076923076923,8,"<a href=\"includes\/Validator.php.html#278\">NewfoldLabs\\WP\\Module\\Htaccess\\Validator::check_forbidden_handlers_scoped<\/a>"]], 'Method Complexity'))
+      .transition()
+      .duration(500)
+      .call(chart);
+
+    nv.utils.windowResize(chart.update);
+
+    return chart;
+  });
+
+  function getComplexityData(data, label) {
+    var values = [];
+    $.each(data, function(key) {
+      var value = Math.round(data[key][0]*100) / 100;
+      values.push({
+        x: value,
+        y: data[key][1],
+        class: data[key][2],
+        size: 0.05,
+        shape: 'diamond'
+      });
+    });
+
+    return [
+      {
+        key: label,
+        values: values,
+        color: "#4572A7"
+      }
+    ];
+  }
+});
+  </script>
+ </body>
+</html>
