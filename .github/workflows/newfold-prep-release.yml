@@ -29,5 +29,5 @@ jobs:
       module-repo: ${{ github.repository }}
       module-branch: 'main'
       level: ${{ inputs.level }}
-      json-file: ''
+      json-file: 'package.json'
       php-file: 'bootstrap.php'

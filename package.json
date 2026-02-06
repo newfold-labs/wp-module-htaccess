@@ -1,0 +1,12 @@
+{
+    "name": "wp-module-htaccess",
+    "version": "1.0.0",
+    "engines": {
+      "node": ">=22.11.0",
+      "npm": ">=10.9.0"
+    },
+    "devDependencies": {
+      "@wordpress/env": "^10.22.0"
+    }
+  }
+  
