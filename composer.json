@@ -46,8 +46,8 @@
     },
     "scripts": {
         "fix": "vendor/bin/phpcbf . --standard=phpcs.xml",
-        "i18n-pot": "vendor/bin/wp i18n make-pot . ./languages/wp-module-hosting.pot --domain=wp-module-hosting --headers='{\"Report-Msgid-Bugs-To\":\"https://github.com/newfold-labs/wp-module-hosting/issues\",\"POT-Creation-Date\":\"2025-02-13T09:55:55+00:00\"}' --exclude=src,scripts,tests,webpack --include=build/*.min.js,includes",
-        "i18n-po": "vendor/bin/wp i18n update-po ./languages/wp-module-hosting.pot ./languages",
+        "i18n-pot": "vendor/bin/wp i18n make-pot . ./languages/wp-module-htaccess.pot --domain=wp-module-htaccess --headers='{\"Report-Msgid-Bugs-To\":\"https://github.com/newfold-labs/wp-module-htaccess/issues\",\"POT-Creation-Date\":\"2025-02-13T09:55:55+00:00\"}' --exclude=src,scripts,tests,webpack,wordpress --include=build/*.min.js,includes",
+        "i18n-po": "vendor/bin/wp i18n update-po ./languages/wp-module-htaccess.pot ./languages",
         "i18n-php": "vendor/bin/wp i18n make-php ./languages",
         "i18n-json": "rm -f languages/*.json && vendor/bin/wp i18n make-json ./languages --no-purge --pretty-print",
         "i18n": [
