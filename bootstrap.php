@@ -23,7 +23,7 @@ if ( function_exists( 'add_action' ) ) {
 						}
 
 						if ( ! defined( 'NFD_MODULE_HTACCESS_VERSION' ) ) {
-							define( 'NFD_MODULE_HTACCESS_VERSION', '1.0.0' );
+							define( 'NFD_MODULE_HTACCESS_VERSION', '1.0.1' );
 						}
 
 						$manager = new Manager( $container );
