@@ -6,5 +6,6 @@
 | [getting-started.md](getting-started.md) | Prerequisites, install, and lint. |
 | [integration.md](integration.md) | How the module registers and consumer API. |
 | [development.md](development.md) | Lint and workflow. |
+| [release.md](release.md) | Release process: use the Newfold Prepare Release workflow. |
 
 Root **AGENTS.md** gives a short agent summary and points here.
