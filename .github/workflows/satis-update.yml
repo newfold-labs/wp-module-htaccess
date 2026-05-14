@@ -13,6 +13,7 @@ jobs:
   webhook:
     name: Send Webhook
     runs-on: ubuntu-latest
+    timeout-minutes: 30
     permissions: {} # Webhook uses secrets.WEBHOOK_TOKEN; default GITHUB_TOKEN is unused.
     steps:
 
