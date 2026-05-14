@@ -22,8 +22,8 @@ jobs:
   prep-release:
     name: Prepare Release
     permissions:
-      contents: write
-      pull-requests: write
+      contents: write      # Required for reusable workflow to push the release branch and commits.
+      pull-requests: write # Required for reusable workflow to open/update the release pull request.
     uses: newfold-labs/workflows/.github/workflows/reusable-module-prep-release.yml@main
     with:
       module-repo: ${{ github.repository }}
