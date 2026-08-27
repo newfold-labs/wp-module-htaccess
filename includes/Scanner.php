@@ -211,13 +211,19 @@ class Scanner {
 			}
 		}
 
-		// Hash the body we expect. Canonicalized the same way as the on-disk
-		// side so the two are comparable: this used to hold the checksum read
-		// out of the file's own header, which made the comparison below the
-		// block against itself. A hand edit still showed up, because it moved
-		// the body without touching the header, but a change in what the code
-		// renders never did.
-		$report['expected_checksum'] = hash( 'sha256', Text::canonicalize_managed_body_for_hash( $expected_body_norm ) );
+		// Hash the body we expect. This used to hold the checksum read out of
+		// the file's own header, which made the comparison below the block
+		// against itself. A hand edit still showed up, because it moves the body
+		// and leaves the header behind, but a change in what the code renders
+		// never did.
+		//
+		// normalize_lf and not canonicalize_managed_body_for_hash: the on-disk
+		// side canonicalizes a block that still carries its two header lines and
+		// the blank after them, and those shifts are what the strips consume.
+		// Run over a bare body they would eat its own first line instead, so a
+		// body opening on a blank line, or on a comment reading "# Managed by",
+		// would never match the same body on disk.
+		$report['expected_checksum'] = hash( 'sha256', Text::normalize_lf( $expected_body_norm, true ) );
 
 		// Compute CURRENT canonical BODY hash (ignores header, keeps inner markers).
 		$current_body_hash = $this->get_current_body_hash(); // Returns '' if block missing/unreadable.
