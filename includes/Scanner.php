@@ -183,7 +183,8 @@ class Scanner {
 		$report['current_checksum'] = $current_hash_header;
 
 		// Build the EXPECTED BODY.
-		$expected_body_norm = $this->expected_body( $context, $fragments );
+		$expected           = $this->expected_state( $context, $fragments );
+		$expected_body_norm = $expected['body'];
 
 		// An empty expected body means no source could describe the block:
 		// nothing persisted, and nothing registered on this request. That is the
@@ -245,8 +246,17 @@ class Scanner {
 			}
 		}
 
-		// If missing or mismatch, remediation (re-applying expected body) can fix drift.
-		$report['can_remediate'] = ( 'missing' === $report['status'] || 'mismatch' === $report['status'] );
+		// Remediation re-applies the expected body. Writing a composed one over a
+		// block that is already there is the risk: it only holds what registered
+		// on this request, and no request registers everything, so anything on
+		// disk that is missing from the registry would be dropped. Creating a
+		// block that is not there cannot lose anything, so that stays allowed.
+		$report['can_remediate'] = ( 'missing' === $report['status'] )
+			|| ( 'mismatch' === $report['status'] && $expected['from_saved_state'] );
+
+		if ( 'mismatch' === $report['status'] && ! $expected['from_saved_state'] ) {
+			$report['issues'][] = 'Drift detected against a composed body; not remediating without saved state.';
+		}
 
 		return $report;
 	}
@@ -263,12 +273,19 @@ class Scanner {
 	 */
 	public function remediate( $context, $fragments, $version ) {
 		$host          = $context->host();
-		$expected_body = $this->expected_body( $context, $fragments );
+		$expected       = $this->expected_state( $context, $fragments );
+		$expected_body  = $expected['body'];
 
 		// Nothing to write from. Removing the block is Manager's job, through
 		// unregistration and remove_canonical_block(), so an empty body here
 		// only ever means the sources came up empty on this request.
 		if ( '' === $expected_body ) {
+			return false;
+		}
+
+		// Same rule the scan applies: a composed body may create a block that is
+		// missing, but must not overwrite one that is already there.
+		if ( ! $expected['from_saved_state'] && '' !== $this->get_current_body_hash() ) {
 			return false;
 		}
 
@@ -432,16 +449,25 @@ class Scanner {
 	 *
 	 * @param Context    $context   Context snapshot.
 	 * @param Fragment[] $fragments Enabled NFD fragments.
-	 * @return string LF-normalized body with no trailing newline.
+	 * @return array {
+	 *   @type string $body             LF-normalized body with no trailing newline.
+	 *   @type bool   $from_saved_state True when it came from saved state.
+	 * }
 	 */
-	protected function expected_body( $context, $fragments ) {
+	protected function expected_state( $context, $fragments ) {
 		$saved = $this->load_saved_body();
 
 		if ( '' !== $saved ) {
-			return Text::normalize_lf( $saved, true );
+			return array(
+				'body'             => Text::normalize_lf( $saved, true ),
+				'from_saved_state' => true,
+			);
 		}
 
-		return Text::normalize_lf( Composer::compose_body_only( $fragments, $context ), true );
+		return array(
+			'body'             => Text::normalize_lf( Composer::compose_body_only( $fragments, $context ), true ),
+			'from_saved_state' => false,
+		);
 	}
 
 	/**

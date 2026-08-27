@@ -348,6 +348,52 @@ class ScannerWPUnitTest extends \lucatume\WPBrowser\TestCase\WPTestCase {
 	}
 
 	/**
+	 * A composed body is never written over a block that already exists.
+	 *
+	 * The registry only holds what registered on this request, and the image
+	 * rules are never in it, so composing can come up short of what is on disk.
+	 * Drift is still reported, it just does not authorise the write.
+	 *
+	 * @return void
+	 */
+	public function test_a_composed_body_does_not_overwrite_an_existing_block() {
+		$on_disk = "# BEGIN A\nHeader set X \"1\"\n# END A\n\n# BEGIN B\nHeader set Y \"1\"\n# END B";
+
+		$path = $this->write_block( $on_disk );
+		$this->set_saved_state( null );
+
+		// Only fragment A is registered, so composing would drop B.
+		$report = $this->create_scanner( $path )->scan( null, array( $this->create_fragment_stub( 'a', "# BEGIN A\nHeader set X \"1\"\n# END A" ) ) );
+
+		$this->assertSame( 'mismatch', $report['status'] );
+		$this->assertFalse( $report['can_remediate'] );
+
+		$this->clean_up( $path );
+	}
+
+	/**
+	 * A block that is absent can still be created without saved state.
+	 *
+	 * Writing one where there is none cannot lose anything, so the composed
+	 * body stays usable for that.
+	 *
+	 * @return void
+	 */
+	public function test_a_missing_block_can_still_be_created() {
+		$path = tempnam( sys_get_temp_dir(), 'nfd-htaccess-' );
+		// phpcs:ignore WordPress.WP.AlternativeFunctions.file_system_operations_file_put_contents -- writing a local fixture.
+		file_put_contents( $path, "# BEGIN WordPress\nRewriteEngine On\n# END WordPress\n" );
+		$this->set_saved_state( null );
+
+		$report = $this->create_scanner( $path )->scan( null, array( $this->create_fragment_stub( 'a', "# BEGIN A\nHeader set X \"1\"\n# END A" ) ) );
+
+		$this->assertSame( 'missing', $report['status'] );
+		$this->assertTrue( $report['can_remediate'] );
+
+		$this->clean_up( $path );
+	}
+
+	/**
 	 * A body opening on a blank line still matches itself on disk.
 	 *
 	 * The on-disk hash canonicalizes a block that carries its header lines. Run
