@@ -61,6 +61,10 @@ class ScannerWPUnitTest extends \lucatume\WPBrowser\TestCase\WPTestCase {
 	/**
 	 * Scanner reading the given file instead of the site's .htaccess.
 	 *
+	 * Only safe for scan(). The Updater handed to it resolves its own path from
+	 * get_home_path(), which these overrides do not touch, so calling
+	 * remediate() through this would write the test install's real .htaccess.
+	 *
 	 * @param string $path File the scanner should read.
 	 * @return Scanner
 	 */
@@ -124,7 +128,21 @@ class ScannerWPUnitTest extends \lucatume\WPBrowser\TestCase\WPTestCase {
 		$key = Options::get_option_name( 'saved_state' );
 
 		if ( null === $body ) {
+			if ( is_multisite() ) {
+				delete_site_option( $key );
+				return;
+			}
+
 			delete_option( $key );
+			return;
+		}
+
+		// Manager::save_state_full() branches the same way. Writing the
+		// single-site option on a multisite run would leave load_saved_body()
+		// reading an empty store and every test would silently exercise the
+		// compose fallback instead.
+		if ( is_multisite() ) {
+			update_site_option( $key, array( 'body' => $body ) );
 			return;
 		}
 
@@ -145,11 +163,11 @@ class ScannerWPUnitTest extends \lucatume\WPBrowser\TestCase\WPTestCase {
 	}
 
 	/**
-	 * A block that no longer matches what the code renders is drift.
+	 * A block that no longer matches the persisted body is drift.
 	 *
 	 * @return void
 	 */
-	public function test_scan_detects_a_changed_render() {
+	public function test_scan_detects_a_block_that_drifted_from_saved_state() {
 		$old = "# BEGIN A\nHeader set X \"1\"\n# END A";
 		$new = "# BEGIN A\nHeader set X \"2\"\n# END A";
 
@@ -219,6 +237,51 @@ class ScannerWPUnitTest extends \lucatume\WPBrowser\TestCase\WPTestCase {
 
 		$path = $this->write_block( $body );
 		$this->set_saved_state( null );
+
+		$report = $this->create_scanner( $path )->scan( null, array( $this->create_fragment_stub( 'a', $body ) ) );
+
+		$this->assertSame( 'ok', $report['status'] );
+		$this->assertSame( hash( 'sha256', $body ), $report['expected_checksum'] );
+
+		$this->clean_up( $path );
+	}
+
+	/**
+	 * Nothing to compare against is not the same as drift.
+	 *
+	 * With no saved state and nothing registered, the expected body is empty.
+	 * Reporting that as drift would hand remediate() an empty body, which is
+	 * how Updater is told to delete the block. Cron and WP-CLI are the requests
+	 * that reach the scanner with a short registry, so this has to hold.
+	 *
+	 * @return void
+	 */
+	public function test_an_empty_expected_body_is_not_drift() {
+		$path = $this->write_block( "# BEGIN A\nHeader set X \"1\"\n# END A" );
+		$this->set_saved_state( null );
+
+		$report = $this->create_scanner( $path )->scan( null, array() );
+
+		$this->assertSame( 'ok', $report['status'] );
+		$this->assertFalse( $report['can_remediate'] );
+
+		$this->clean_up( $path );
+	}
+
+	/**
+	 * A body opening on a blank line still matches itself on disk.
+	 *
+	 * The on-disk hash canonicalizes a block that carries its header lines. Run
+	 * over a bare body the same helper would strip the body's own first line
+	 * instead, so the two sides have to be hashed differently.
+	 *
+	 * @return void
+	 */
+	public function test_a_body_starting_with_a_blank_line_is_not_drift() {
+		$body = "\n# BEGIN A\nHeader set X \"1\"\n# END A";
+
+		$path = $this->write_block( $body );
+		$this->set_saved_state( $body );
 
 		$report = $this->create_scanner( $path )->scan( null, array( $this->create_fragment_stub( 'a', $body ) ) );
 
