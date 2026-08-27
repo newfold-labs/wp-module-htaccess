@@ -185,6 +185,19 @@ class Scanner {
 		// Build the EXPECTED BODY.
 		$expected_body_norm = $this->expected_body( $context, $fragments );
 
+		// An empty expected body means no source could describe the block:
+		// nothing persisted, and nothing registered on this request. That is the
+		// ordinary shape of a cron or WP-CLI request, not evidence the block is
+		// wrong. Calling it drift would hand remediate() an empty body, and
+		// Updater::apply_managed_block() deletes the block when it gets one.
+		if ( '' === $expected_body_norm ) {
+			if ( $has_block ) {
+				$report['issues'][] = 'No expected body available; leaving the managed block alone.';
+			}
+
+			return $report;
+		}
+
 		// Validate the expected body; attempt remediation if invalid.
 		if ( ! $this->validator->is_valid( $expected_body_norm, array() ) ) {
 			$report['status']   = 'invalid';
@@ -245,6 +258,13 @@ class Scanner {
 	public function remediate( $context, $fragments, $version ) {
 		$host          = $context->host();
 		$expected_body = $this->expected_body( $context, $fragments );
+
+		// Nothing to write from. Removing the block is Manager's job, through
+		// unregistration and remove_canonical_block(), so an empty body here
+		// only ever means the sources came up empty on this request.
+		if ( '' === $expected_body ) {
+			return false;
+		}
 
 		// Validate/remediate expected body before writing.
 		if ( ! $this->validator->is_valid( $expected_body, array() ) ) {
