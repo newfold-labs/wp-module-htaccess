@@ -135,6 +135,8 @@ class Scanner {
 	 * - The header "STATE sha256: ..." (if present) is parsed and returned
 	 *   as current_checksum for observability, but a stale header alone
 	 *   does NOT cause a mismatch if the underlying BODY matches.
+	 * - expected_checksum is the hash of the body the block is supposed to
+	 *   hold, not the one recorded in the file.
 	 *
 	 * @since 1.0.0
 	 * @since 1.1.0 Now compares canonical BODY hashes consistent with Updater/Manager.
@@ -145,7 +147,7 @@ class Scanner {
 	 *   @type string   status            One of 'ok', 'missing', 'mismatch', 'invalid', 'error'.
 	 *   @type string[] issues            Human-readable issues detected (may be empty).
 	 *   @type string   current_checksum  Checksum parsed from the in-block header (may be stale or empty).
-	 *   @type string   expected_checksum Canonical BODY checksum used for the actual comparison.
+	 *   @type string   expected_checksum Canonical BODY checksum of the expected body, used for the comparison.
 	 *   @type bool     can_remediate     True if a remediation apply should fix drift.
 	 * }
 	 */
@@ -177,8 +179,8 @@ class Scanner {
 		$has_block = ! empty( $current_lines );
 
 		// Parse the header "STATE sha256: ..." (for observability only).
-		$current_hash_header         = $this->extract_hash_from_lines( $current_lines );
-		$report['expected_checksum'] = $current_hash_header;
+		$current_hash_header        = $this->extract_hash_from_lines( $current_lines );
+		$report['current_checksum'] = $current_hash_header;
 
 		// Build the EXPECTED BODY.
 		$expected_body_norm = $this->expected_body( $context, $fragments );
@@ -196,9 +198,16 @@ class Scanner {
 			}
 		}
 
+		// Hash the body we expect. Canonicalized the same way as the on-disk
+		// side so the two are comparable: this used to hold the checksum read
+		// out of the file's own header, which made the comparison below the
+		// block against itself. A hand edit still showed up, because it moved
+		// the body without touching the header, but a change in what the code
+		// renders never did.
+		$report['expected_checksum'] = hash( 'sha256', Text::canonicalize_managed_body_for_hash( $expected_body_norm ) );
+
 		// Compute CURRENT canonical BODY hash (ignores header, keeps inner markers).
-		$current_body_hash          = $this->get_current_body_hash(); // Returns '' if block missing/unreadable.
-		$report['current_checksum'] = $current_hash_header;
+		$current_body_hash = $this->get_current_body_hash(); // Returns '' if block missing/unreadable.
 
 		// Decide status based on BODY hash comparison (authoritative).
 		if ( ! $has_block || '' === $current_body_hash ) {
