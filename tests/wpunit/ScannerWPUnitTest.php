@@ -59,18 +59,47 @@ class ScannerWPUnitTest extends \lucatume\WPBrowser\TestCase\WPTestCase {
 	}
 
 	/**
-	 * Scanner reading the given file instead of the site's .htaccess.
+	 * Updater writing the given file instead of the site's .htaccess.
 	 *
-	 * Only safe for scan(). The Updater handed to it resolves its own path from
-	 * get_home_path(), which these overrides do not touch, so calling
-	 * remediate() through this would write the test install's real .htaccess.
+	 * Without this the Updater resolves its own path from get_home_path(), so a
+	 * remediate() test would write the test install's real file and its
+	 * assertions would pass for the wrong reason.
 	 *
-	 * @param string $path File the scanner should read.
+	 * @param string $path File the updater should write.
+	 * @return Updater
+	 */
+	private function create_updater( $path ) {
+		// phpcs:disable Squiz.Commenting.FunctionComment.Missing -- overrides inherit the parent docblocks
+		return new class( $path ) extends Updater {
+			/**
+			 * File to write instead of the site's .htaccess.
+			 *
+			 * @var string
+			 */
+			private $test_path;
+			public function __construct( $test_path ) {
+				parent::__construct();
+				$this->test_path = $test_path;
+			}
+			protected function get_htaccess_path() {
+				return $this->test_path;
+			}
+		};
+		// phpcs:enable Squiz.Commenting.FunctionComment.Missing
+	}
+
+	/**
+	 * Scanner reading and writing the given file instead of the site's .htaccess.
+	 *
+	 * @param string       $path    File the scanner should act on.
+	 * @param Updater|null $updater Updater to use. Defaults to a path-isolated one.
 	 * @return Scanner
 	 */
-	private function create_scanner( $path ) {
+	private function create_scanner( $path, $updater = null ) {
+		$updater = ( null === $updater ) ? $this->create_updater( $path ) : $updater;
+
 		// phpcs:disable Squiz.Commenting.FunctionComment.Missing -- overrides inherit the parent docblocks
-		return new class( new Updater(), new Validator(), $path ) extends Scanner {
+		return new class( $updater, new Validator(), $path ) extends Scanner {
 			/**
 			 * File to read instead of the site's .htaccess.
 			 *
@@ -87,6 +116,21 @@ class ScannerWPUnitTest extends \lucatume\WPBrowser\TestCase\WPTestCase {
 			protected function read_file( $path ) {
 				// phpcs:ignore WordPress.WP.AlternativeFunctions.file_get_contents_file_get_contents -- reading a local fixture, not a URL.
 				return file_exists( $path ) ? (string) file_get_contents( $path ) : '';
+			}
+		};
+		// phpcs:enable Squiz.Commenting.FunctionComment.Missing
+	}
+
+	/**
+	 * Context stub exposing the single method remediate() reads.
+	 *
+	 * @return object
+	 */
+	private function create_context_stub() {
+		// phpcs:disable Squiz.Commenting.FunctionComment.Missing -- single-method stub
+		return new class() {
+			public function host() {
+				return 'example.com';
 			}
 		};
 		// phpcs:enable Squiz.Commenting.FunctionComment.Missing
@@ -264,6 +308,41 @@ class ScannerWPUnitTest extends \lucatume\WPBrowser\TestCase\WPTestCase {
 
 		$this->assertSame( 'ok', $report['status'] );
 		$this->assertFalse( $report['can_remediate'] );
+
+		$this->clean_up( $path );
+	}
+
+	/**
+	 * Remediation is refused when there is no body to write.
+	 *
+	 * It returns before reaching the Updater, so nothing touches the filesystem.
+	 * An empty body is what Updater reads as an instruction to delete the block.
+	 *
+	 * @return void
+	 */
+	public function test_remediate_refuses_an_empty_expected_body() {
+		$path = $this->write_block( "# BEGIN A\nHeader set X \"1\"\n# END A" );
+		$this->set_saved_state( null );
+
+		// phpcs:disable Squiz.Commenting.FunctionComment.Missing -- override inherits the parent docblock
+		$updater = new class() extends Updater {
+			/**
+			 * Number of write attempts seen.
+			 *
+			 * @var int
+			 */
+			public $writes = 0;
+			public function apply_managed_block( $body, $host, $version, $legacy_labels = array() ) {
+				++$this->writes;
+				return true;
+			}
+		};
+		// phpcs:enable Squiz.Commenting.FunctionComment.Missing
+
+		$applied = $this->create_scanner( $path, $updater )->remediate( $this->create_context_stub(), array(), '1.0.0' );
+
+		$this->assertFalse( $applied );
+		$this->assertSame( 0, $updater->writes );
 
 		$this->clean_up( $path );
 	}
