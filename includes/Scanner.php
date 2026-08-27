@@ -180,9 +180,8 @@ class Scanner {
 		$current_hash_header         = $this->extract_hash_from_lines( $current_lines );
 		$report['expected_checksum'] = $current_hash_header;
 
-		// Build the EXPECTED BODY from the provided fragments.
-		$expected_body      = Composer::compose_body_only( $fragments, $context );
-		$expected_body_norm = Text::normalize_lf( $expected_body, true );
+		// Build the EXPECTED BODY.
+		$expected_body_norm = $this->expected_body( $context, $fragments );
 
 		// Validate the expected body; attempt remediation if invalid.
 		if ( ! $this->validator->is_valid( $expected_body_norm, array() ) ) {
@@ -236,8 +235,7 @@ class Scanner {
 	 */
 	public function remediate( $context, $fragments, $version ) {
 		$host          = $context->host();
-		$expected_body = Composer::compose_body_only( $fragments, $context );
-		$expected_body = Text::normalize_lf( $expected_body, true );
+		$expected_body = $this->expected_body( $context, $fragments );
 
 		// Validate/remediate expected body before writing.
 		if ( ! $this->validator->is_valid( $expected_body, array() ) ) {
@@ -383,6 +381,58 @@ class Scanner {
 	}
 
 
+
+	/**
+	 * Body the managed block is supposed to hold.
+	 *
+	 * Saved state comes first, the same order Manager::apply_canonical_state()
+	 * and Manager::reconcile_saved_block() use. The registry only holds what
+	 * registered on the current request, and most consumers register on
+	 * admin_init, which cron never reaches. Composing from it there would build
+	 * an expected body out of whatever happened to be present.
+	 *
+	 * Composing is the fallback for a site that has not persisted state yet.
+	 *
+	 * @since 1.1.0
+	 *
+	 * @param Context    $context   Context snapshot.
+	 * @param Fragment[] $fragments Enabled NFD fragments.
+	 * @return string LF-normalized body with no trailing newline.
+	 */
+	protected function expected_body( $context, $fragments ) {
+		$saved = $this->load_saved_body();
+
+		if ( '' !== $saved ) {
+			return Text::normalize_lf( $saved, true );
+		}
+
+		return Text::normalize_lf( Composer::compose_body_only( $fragments, $context ), true );
+	}
+
+	/**
+	 * Read the composed body held in saved state.
+	 *
+	 * @since 1.1.0
+	 *
+	 * @return string Body text, or '' when nothing has been persisted.
+	 */
+	protected function load_saved_body() {
+		$key = Options::get_option_name( 'saved_state' );
+
+		if ( ! $key || ! function_exists( 'get_option' ) ) {
+			return '';
+		}
+
+		$payload = ( function_exists( 'is_multisite' ) && is_multisite() && function_exists( 'get_site_option' ) )
+			? get_site_option( $key, array() )
+			: get_option( $key, array() );
+
+		if ( ! is_array( $payload ) || ! isset( $payload['body'] ) ) {
+			return '';
+		}
+
+		return (string) $payload['body'];
+	}
 
 	/**
 	 * Extract the NFD block’s checksum from marker lines.
