@@ -348,6 +348,43 @@ class ScannerWPUnitTest extends \lucatume\WPBrowser\TestCase\WPTestCase {
 	}
 
 	/**
+	 * A null context does not take remediation down.
+	 *
+	 * Cron builds the context conditionally and can pass null. The host is only
+	 * used for a comment line that the body hash ignores, so it is read late and
+	 * defensively rather than on the first line.
+	 *
+	 * @return void
+	 */
+	public function test_remediate_survives_a_null_context() {
+		$body = "# BEGIN A\nHeader set X \"1\"\n# END A";
+		$path = $this->write_block( $body );
+		$this->set_saved_state( $body );
+
+		// phpcs:disable Squiz.Commenting.FunctionComment.Missing -- override inherits the parent docblock
+		$updater = new class() extends Updater {
+			/**
+			 * Number of write attempts seen.
+			 *
+			 * @var int
+			 */
+			public $writes = 0;
+			public function apply_managed_block( $body, $host, $version, $legacy_labels = array() ) {
+				++$this->writes;
+				return true;
+			}
+		};
+		// phpcs:enable Squiz.Commenting.FunctionComment.Missing
+
+		$applied = $this->create_scanner( $path, $updater )->remediate( null, array(), '1.0.0' );
+
+		$this->assertTrue( $applied );
+		$this->assertSame( 1, $updater->writes );
+
+		$this->clean_up( $path );
+	}
+
+	/**
 	 * A composed body is never written over a block that already exists.
 	 *
 	 * The registry only holds what registered on this request, and the image

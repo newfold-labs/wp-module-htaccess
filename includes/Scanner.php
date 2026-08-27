@@ -272,9 +272,8 @@ class Scanner {
 	 * @return bool True on success, false on failure.
 	 */
 	public function remediate( $context, $fragments, $version ) {
-		$host          = $context->host();
-		$expected       = $this->expected_state( $context, $fragments );
-		$expected_body  = $expected['body'];
+		$expected      = $this->expected_state( $context, $fragments );
+		$expected_body = $expected['body'];
 
 		// Nothing to write from. Removing the block is Manager's job, through
 		// unregistration and remove_canonical_block(), so an empty body here
@@ -296,6 +295,11 @@ class Scanner {
 				return false;
 			}
 		}
+
+		// Only used for the "Managed by" comment line, which is not part of the
+		// body hash. Cron builds the context conditionally and can hand over
+		// null, so this must not be read before the guards above have run.
+		$host = ( $context instanceof Context ) ? $context->host() : '';
 
 		// Updater will embed header + checksum and no-op if identical.
 		return (bool) $this->updater->apply_managed_block( $expected_body, $host, $version );
