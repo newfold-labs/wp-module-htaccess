@@ -462,11 +462,11 @@ class Scanner {
 			? get_site_option( $key, array() )
 			: get_option( $key, array() );
 
-		if ( ! is_array( $payload ) || ! isset( $payload['body'] ) ) {
+		if ( ! is_array( $payload ) || ! isset( $payload['body'] ) || ! is_string( $payload['body'] ) ) {
 			return '';
 		}
 
-		return (string) $payload['body'];
+		return $payload['body'];
 	}
 
 	/**
