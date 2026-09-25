@@ -135,6 +135,8 @@ class Scanner {
 	 * - The header "STATE sha256: ..." (if present) is parsed and returned
 	 *   as current_checksum for observability, but a stale header alone
 	 *   does NOT cause a mismatch if the underlying BODY matches.
+	 * - expected_checksum is the hash of the body the block is supposed to
+	 *   hold, not the one recorded in the file.
 	 *
 	 * @since 1.0.0
 	 * @since 1.1.0 Now compares canonical BODY hashes consistent with Updater/Manager.
@@ -145,7 +147,7 @@ class Scanner {
 	 *   @type string   status            One of 'ok', 'missing', 'mismatch', 'invalid', 'error'.
 	 *   @type string[] issues            Human-readable issues detected (may be empty).
 	 *   @type string   current_checksum  Checksum parsed from the in-block header (may be stale or empty).
-	 *   @type string   expected_checksum Canonical BODY checksum used for the actual comparison.
+	 *   @type string   expected_checksum Canonical BODY checksum of the expected body, used for the comparison.
 	 *   @type bool     can_remediate     True if a remediation apply should fix drift.
 	 * }
 	 */
@@ -177,12 +179,25 @@ class Scanner {
 		$has_block = ! empty( $current_lines );
 
 		// Parse the header "STATE sha256: ..." (for observability only).
-		$current_hash_header         = $this->extract_hash_from_lines( $current_lines );
-		$report['expected_checksum'] = $current_hash_header;
+		$current_hash_header        = $this->extract_hash_from_lines( $current_lines );
+		$report['current_checksum'] = $current_hash_header;
 
-		// Build the EXPECTED BODY from the provided fragments.
-		$expected_body      = Composer::compose_body_only( $fragments, $context );
-		$expected_body_norm = Text::normalize_lf( $expected_body, true );
+		// Build the EXPECTED BODY.
+		$expected           = $this->expected_state( $context, $fragments );
+		$expected_body_norm = $expected['body'];
+
+		// An empty expected body means no source could describe the block:
+		// nothing persisted, and nothing registered on this request. That is the
+		// ordinary shape of a cron or WP-CLI request, not evidence the block is
+		// wrong. Calling it drift would hand remediate() an empty body, and
+		// Updater::apply_managed_block() deletes the block when it gets one.
+		if ( '' === $expected_body_norm ) {
+			if ( $has_block ) {
+				$report['issues'][] = 'No expected body available; leaving the managed block alone.';
+			}
+
+			return $report;
+		}
 
 		// Validate the expected body; attempt remediation if invalid.
 		if ( ! $this->validator->is_valid( $expected_body_norm, array() ) ) {
@@ -197,9 +212,22 @@ class Scanner {
 			}
 		}
 
+		// Hash the body we expect. This used to hold the checksum read out of
+		// the file's own header, which made the comparison below the block
+		// against itself. A hand edit still showed up, because it moves the body
+		// and leaves the header behind, but a change in what the code renders
+		// never did.
+		//
+		// normalize_lf and not canonicalize_managed_body_for_hash: the on-disk
+		// side canonicalizes a block that still carries its two header lines and
+		// the blank after them, and those shifts are what the strips consume.
+		// Run over a bare body they would eat its own first line instead, so a
+		// body opening on a blank line, or on a comment reading "# Managed by",
+		// would never match the same body on disk.
+		$report['expected_checksum'] = hash( 'sha256', Text::normalize_lf( $expected_body_norm, true ) );
+
 		// Compute CURRENT canonical BODY hash (ignores header, keeps inner markers).
-		$current_body_hash          = $this->get_current_body_hash(); // Returns '' if block missing/unreadable.
-		$report['current_checksum'] = $current_hash_header;
+		$current_body_hash = $this->get_current_body_hash(); // Returns '' if block missing/unreadable.
 
 		// Decide status based on BODY hash comparison (authoritative).
 		if ( ! $has_block || '' === $current_body_hash ) {
@@ -218,8 +246,17 @@ class Scanner {
 			}
 		}
 
-		// If missing or mismatch, remediation (re-applying expected body) can fix drift.
-		$report['can_remediate'] = ( 'missing' === $report['status'] || 'mismatch' === $report['status'] );
+		// Remediation re-applies the expected body. Writing a composed one over a
+		// block that is already there is the risk: it only holds what registered
+		// on this request, and no request registers everything, so anything on
+		// disk that is missing from the registry would be dropped. Creating a
+		// block that is not there cannot lose anything, so that stays allowed.
+		$report['can_remediate'] = ( 'missing' === $report['status'] )
+			|| ( 'mismatch' === $report['status'] && $expected['from_saved_state'] );
+
+		if ( 'mismatch' === $report['status'] && ! $expected['from_saved_state'] ) {
+			$report['issues'][] = 'Drift detected against a composed body; not remediating without saved state.';
+		}
 
 		return $report;
 	}
@@ -235,9 +272,21 @@ class Scanner {
 	 * @return bool True on success, false on failure.
 	 */
 	public function remediate( $context, $fragments, $version ) {
-		$host          = $context->host();
-		$expected_body = Composer::compose_body_only( $fragments, $context );
-		$expected_body = Text::normalize_lf( $expected_body, true );
+		$expected      = $this->expected_state( $context, $fragments );
+		$expected_body = $expected['body'];
+
+		// Nothing to write from. Removing the block is Manager's job, through
+		// unregistration and remove_canonical_block(), so an empty body here
+		// only ever means the sources came up empty on this request.
+		if ( '' === $expected_body ) {
+			return false;
+		}
+
+		// Same rule the scan applies: a composed body may create a block that is
+		// missing, but must not overwrite one that is already there.
+		if ( ! $expected['from_saved_state'] && '' !== $this->get_current_body_hash() ) {
+			return false;
+		}
 
 		// Validate/remediate expected body before writing.
 		if ( ! $this->validator->is_valid( $expected_body, array() ) ) {
@@ -246,6 +295,11 @@ class Scanner {
 				return false;
 			}
 		}
+
+		// Only used for the "Managed by" comment line, which is not part of the
+		// body hash. Cron builds the context conditionally and can hand over
+		// null, so this must not be read before the guards above have run.
+		$host = ( $context instanceof Context ) ? $context->host() : '';
 
 		// Updater will embed header + checksum and no-op if identical.
 		return (bool) $this->updater->apply_managed_block( $expected_body, $host, $version );
@@ -383,6 +437,67 @@ class Scanner {
 	}
 
 
+
+	/**
+	 * Body the managed block is supposed to hold.
+	 *
+	 * Saved state comes first, the same order Manager::apply_canonical_state()
+	 * and Manager::reconcile_saved_block() use. The registry only holds what
+	 * registered on the current request, and most consumers register on
+	 * admin_init, which cron never reaches. Composing from it there would build
+	 * an expected body out of whatever happened to be present.
+	 *
+	 * Composing is the fallback for a site that has not persisted state yet.
+	 *
+	 * @since 1.1.0
+	 *
+	 * @param Context    $context   Context snapshot.
+	 * @param Fragment[] $fragments Enabled NFD fragments.
+	 * @return array {
+	 *   @type string $body             LF-normalized body with no trailing newline.
+	 *   @type bool   $from_saved_state True when it came from saved state.
+	 * }
+	 */
+	protected function expected_state( $context, $fragments ) {
+		$saved = $this->load_saved_body();
+
+		if ( '' !== $saved ) {
+			return array(
+				'body'             => Text::normalize_lf( $saved, true ),
+				'from_saved_state' => true,
+			);
+		}
+
+		return array(
+			'body'             => Text::normalize_lf( Composer::compose_body_only( $fragments, $context ), true ),
+			'from_saved_state' => false,
+		);
+	}
+
+	/**
+	 * Read the composed body held in saved state.
+	 *
+	 * @since 1.1.0
+	 *
+	 * @return string Body text, or '' when nothing has been persisted.
+	 */
+	protected function load_saved_body() {
+		$key = Options::get_option_name( 'saved_state' );
+
+		if ( ! $key || ! function_exists( 'get_option' ) ) {
+			return '';
+		}
+
+		$payload = ( function_exists( 'is_multisite' ) && is_multisite() && function_exists( 'get_site_option' ) )
+			? get_site_option( $key, array() )
+			: get_option( $key, array() );
+
+		if ( ! is_array( $payload ) || ! isset( $payload['body'] ) || ! is_string( $payload['body'] ) ) {
+			return '';
+		}
+
+		return $payload['body'];
+	}
 
 	/**
 	 * Extract the NFD block’s checksum from marker lines.
