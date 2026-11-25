@@ -51,57 +51,86 @@ class ValidatorWPUnitTest extends \lucatume\WPBrowser\TestCase\WPTestCase {
 	}
 
 	/**
-	 * An END with no BEGIN and no earlier bare opener is still an error.
+	 * A Wordfence END with no opener, or a second END, is still an error.
 	 *
 	 * @return void
 	 */
-	public function test_is_valid_reports_orphan_end() {
+	public function test_is_valid_reports_unpaired_wordfence_end() {
 		$validator = new Validator();
 		$this->assertFalse( $validator->is_valid( "# BEGIN WordPress\n# END WordPress\n# END Wordfence WAF\n", array() ) );
-		$this->assertNotEmpty( $validator->get_errors() );
+		$this->assertFalse( $validator->is_valid( "# Wordfence WAF\n# END Wordfence WAF\n# END Wordfence WAF\n", array() ) );
 	}
 
 	/**
-	 * A bare opener closes one block only, and only one that comes after it.
+	 * Known openers never make a previously valid file invalid.
 	 *
 	 * @return void
 	 */
-	public function test_bare_opener_is_consumed_once_and_must_come_first() {
+	public function test_known_opener_does_not_affect_begin_blocks() {
 		$validator = new Validator();
-		$this->assertFalse( $validator->is_valid( "# Foo\n# END Foo\n# END Foo\n", array() ) );
-		$this->assertFalse( $validator->is_valid( "# END Foo\n# Foo\n", array() ) );
+		$this->assertTrue( $validator->is_valid( "# Wordfence WAF\nphp_value x y\n", array() ) );
+		$this->assertTrue( $validator->is_valid( "# BEGIN A\n# Wordfence WAF\n# END A\n# END Wordfence WAF\n", array() ) );
+		$this->assertTrue( $validator->is_valid( "# BEGIN A\n# Wordfence WAF\n# END Wordfence WAF\n# END A\n", array() ) );
 	}
 
 	/**
-	 * WP Rocket and Really Simple SSL add a version after the label on BEGIN only.
+	 * Unlisted bare comments do not open blocks.
 	 *
 	 * @return void
 	 */
-	public function test_is_valid_accepts_versioned_begin_labels() {
+	public function test_unlisted_bare_comment_does_not_open_a_block() {
 		$validator = new Validator();
-		$this->assertTrue( $validator->is_valid( "# BEGIN WP Rocket v3.16.2\nAddDefaultCharset UTF-8\n# END WP Rocket\n", array() ) );
-		$this->assertTrue( $validator->is_valid( "# BEGIN rlrssslReallySimpleSSL rsssl_version[5.0]\nRewriteEngine on\n# END rlrssslReallySimpleSSL\n", array() ) );
-		$this->assertFalse( $validator->is_valid( "# BEGIN WP Rocketeer\n# END WP Rocket\n", array() ) );
+		$this->assertFalse( $validator->is_valid( "# Foo\n# END Foo\n", array() ) );
 	}
 
 	/**
-	 * A bare-opener block may close while a BEGIN block is still open.
+	 * The filter adds formats; a non-array return falls back to the defaults.
 	 *
 	 * @return void
 	 */
-	public function test_bare_opener_block_can_cross_a_begin_block() {
+	public function test_known_block_formats_filter() {
 		$validator = new Validator();
-		$this->assertTrue( $validator->is_valid( "# Foo\n# BEGIN A\n# END Foo\n# END A\n", array() ) );
+		$text      = "# Acme Rules\nHeader set X 1\n# END Acme Rules\n";
+		$this->assertFalse( $validator->is_valid( $text, array() ) );
+
+		$add = static function ( $formats ) {
+			$formats['Acme Rules'] = 'Acme Rules';
+			return $formats;
+		};
+		add_filter( 'nfd_htaccess_known_block_formats', $add );
+		$this->assertTrue( $validator->is_valid( $text, array() ) );
+		remove_filter( 'nfd_htaccess_known_block_formats', $add );
+
+		add_filter( 'nfd_htaccess_known_block_formats', '__return_false' );
+		$this->assertTrue( $validator->is_valid( "# Wordfence WAF\n# END Wordfence WAF\n", array() ) );
+		remove_filter( 'nfd_htaccess_known_block_formats', '__return_false' );
 	}
 
 	/**
-	 * Accepted relaxation: a comment equal to a label pairs with a stray END.
+	 * Odd filter entries are skipped or normalized without warnings.
 	 *
 	 * @return void
 	 */
-	public function test_comment_matching_a_label_pairs_with_an_extra_end() {
+	public function test_known_block_formats_filter_skips_odd_entries() {
 		$validator = new Validator();
-		$this->assertTrue( $validator->is_valid( "# X\n# BEGIN X\n# END X\n# END X\n", array() ) );
+		$odd       = static function () {
+			return array(
+				'404'      => '404',
+				''         => 'Empty Opener',
+				'No Label' => '',
+				'Array'    => array( 'x' ),
+				7          => 'Seven',
+			);
+		};
+		add_filter( 'nfd_htaccess_known_block_formats', $odd );
+
+		$this->assertTrue( $validator->is_valid( "# 404\n# END 404\n", array() ) );
+		$this->assertTrue( $validator->is_valid( "# 7\n# END Seven\n", array() ) );
+		$this->assertFalse( $validator->is_valid( "# Array\n# END Array\n", array() ) );
+		$this->assertFalse( $validator->is_valid( "# No Label\n# END No Label\n", array() ) );
+		$this->assertFalse( $validator->is_valid( "# Wordfence WAF\n# END Wordfence WAF\n", array() ) );
+
+		remove_filter( 'nfd_htaccess_known_block_formats', $odd );
 	}
 
 	/**
