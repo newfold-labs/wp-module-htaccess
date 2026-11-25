@@ -470,4 +470,22 @@ class ScannerWPUnitTest extends \lucatume\WPBrowser\TestCase\WPTestCase {
 
 		$this->clean_up( $path );
 	}
+
+	/**
+	 * A file carrying Wordfence's firewall block is valid, so the Updater and
+	 * the daily cron do not roll it back to the backup.
+	 *
+	 * @return void
+	 */
+	public function test_diagnose_accepts_a_wordfence_waf_block() {
+		$path = $this->write_block( "# BEGIN A\nHeader set X \"1\"\n# END A" );
+		// phpcs:ignore WordPress.WP.AlternativeFunctions.file_system_operations_file_put_contents -- writing a local fixture.
+		file_put_contents( $path, "# Wordfence WAF\n<IfModule LiteSpeed>\nphp_value auto_prepend_file '/tmp/wordfence-waf.php'\n</IfModule>\n# END Wordfence WAF\n", FILE_APPEND );
+
+		$diagnosis = $this->create_scanner( $path )->diagnose( $this->create_context_stub() );
+
+		$this->assertTrue( $diagnosis['file_valid'] );
+
+		$this->clean_up( $path );
+	}
 }

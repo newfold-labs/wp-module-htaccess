@@ -170,13 +170,20 @@ class Validator {
 	 *   # BEGIN WordPress
 	 *   # END WordPress
 	 *
+	 * Also accepts two third-party variants:
+	 *   # Wordfence WAF                  (bare opener, no BEGIN)
+	 *   # END Wordfence WAF
+	 *   # BEGIN WP Rocket v3.16.2        (extra text after the label on BEGIN only)
+	 *   # END WP Rocket
+	 *
 	 * @since 1.0.0
 	 *
 	 * @param string[] $lines Lines to inspect.
 	 * @return void
 	 */
 	protected function check_begin_end_balance( $lines ) {
-		$stack = array();
+		$stack        = array();
+		$bare_openers = array();
 
 		foreach ( $lines as $i => $line ) {
 			if ( preg_match( '/^\s*#\s*BEGIN\s+(.+?)\s*$/', $line, $m ) ) {
@@ -187,10 +194,28 @@ class Validator {
 
 			if ( preg_match( '/^\s*#\s*END\s+(.+?)\s*$/', $line, $m ) ) {
 				$label = trim( $m[1] );
-				$last  = empty( $stack ) ? null : array_pop( $stack );
-				if ( $last !== $label ) {
-					$this->errors[] = 'BEGIN/END mismatch near line ' . ( $i + 1 ) . ' (END ' . $label . ' without matching BEGIN).';
+
+				$top = empty( $stack ) ? null : end( $stack );
+				if ( null !== $top && ( $top === $label || 0 === strpos( $top, $label . ' ' ) ) ) {
+					array_pop( $stack );
+					continue;
 				}
+
+				// Closes a block opened by an earlier bare "# Label" comment.
+				if ( ! empty( $bare_openers[ $label ] ) ) {
+					--$bare_openers[ $label ];
+					continue;
+				}
+
+				array_pop( $stack );
+				$this->errors[] = 'BEGIN/END mismatch near line ' . ( $i + 1 ) . ' (END ' . $label . ' without matching BEGIN).';
+				continue;
+			}
+
+			// Any other comment line may open a block that a later END closes.
+			if ( preg_match( '/^\s*#\s*(.+?)\s*$/', $line, $m ) ) {
+				$label                  = trim( $m[1] );
+				$bare_openers[ $label ] = ( $bare_openers[ $label ] ?? 0 ) + 1;
 			}
 		}
 
