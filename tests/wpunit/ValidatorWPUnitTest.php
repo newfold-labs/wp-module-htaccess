@@ -74,6 +74,19 @@ class ValidatorWPUnitTest extends \lucatume\WPBrowser\TestCase\WPTestCase {
 	}
 
 	/**
+	 * Repeated known blocks each pair with their own END.
+	 *
+	 * @return void
+	 */
+	public function test_is_valid_accepts_repeated_wordfence_blocks() {
+		$validator = new Validator();
+		$block     = "# Wordfence WAF\nphp_value x y\n# END Wordfence WAF\n";
+		$this->assertTrue( $validator->is_valid( $block . "# BEGIN WordPress\n# END WordPress\n" . $block, array() ) );
+		$this->assertTrue( $validator->is_valid( "# Wordfence WAF\n# Wordfence WAF\n# END Wordfence WAF\n# END Wordfence WAF\n", array() ) );
+		$this->assertFalse( $validator->is_valid( $block . $block . "# END Wordfence WAF\n", array() ) );
+	}
+
+	/**
 	 * Unlisted bare comments do not open blocks.
 	 *
 	 * @return void
@@ -104,6 +117,19 @@ class ValidatorWPUnitTest extends \lucatume\WPBrowser\TestCase\WPTestCase {
 		add_filter( 'nfd_htaccess_known_block_formats', '__return_false' );
 		$this->assertTrue( $validator->is_valid( "# Wordfence WAF\n# END Wordfence WAF\n", array() ) );
 		remove_filter( 'nfd_htaccess_known_block_formats', '__return_false' );
+	}
+
+	/**
+	 * An empty array turns the list off, so a Wordfence END is a mismatch again.
+	 *
+	 * @return void
+	 */
+	public function test_known_block_formats_filter_empty_array_turns_list_off() {
+		$validator = new Validator();
+		add_filter( 'nfd_htaccess_known_block_formats', '__return_empty_array' );
+		$this->assertFalse( $validator->is_valid( "# Wordfence WAF\n# END Wordfence WAF\n", array() ) );
+		$this->assertTrue( $validator->is_valid( "# BEGIN WordPress\n# END WordPress\n", array() ) );
+		remove_filter( 'nfd_htaccess_known_block_formats', '__return_empty_array' );
 	}
 
 	/**
