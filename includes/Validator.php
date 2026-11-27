@@ -22,11 +22,64 @@ namespace NewfoldLabs\WP\Module\Htaccess;
 class Validator {
 
 	/**
+	 * Third-party blocks that do not open with "# BEGIN <label>".
+	 *
+	 * Maps the opening comment text (after "#") to the label its END line
+	 * uses. Extend with the nfd_htaccess_known_block_formats filter.
+	 *
+	 * @since 1.1.0
+	 *
+	 * @var array<string, string>
+	 */
+	const KNOWN_BLOCK_FORMATS = array(
+		// Wordfence firewall: "# Wordfence WAF" ... "# END Wordfence WAF".
+		'Wordfence WAF' => 'Wordfence WAF',
+	);
+
+	/**
 	 * Collected error messages for the last validation run.
 	 *
 	 * @var string[]
 	 */
 	protected $errors = array();
+
+	/**
+	 * Known third-party block formats, allowing a WP filter to add more.
+	 *
+	 * A filter returning an empty array turns the list off; a non-array
+	 * return falls back to the defaults.
+	 *
+	 * @since 1.1.0
+	 *
+	 * @return array<string, string> Opening comment text => END label.
+	 */
+	protected function known_block_formats() {
+		$formats = self::KNOWN_BLOCK_FORMATS;
+
+		if ( function_exists( 'apply_filters' ) ) {
+			$formats = apply_filters( 'nfd_htaccess_known_block_formats', $formats );
+		}
+
+		if ( ! is_array( $formats ) ) {
+			return self::KNOWN_BLOCK_FORMATS;
+		}
+
+		$clean = array();
+		foreach ( $formats as $open => $end_label ) {
+			// PHP turns numeric-string keys into ints, so accept both.
+			if ( ! is_scalar( $end_label ) || ! ( is_string( $open ) || is_int( $open ) ) ) {
+				continue;
+			}
+
+			$open      = trim( (string) $open );
+			$end_label = trim( (string) $end_label );
+			if ( '' !== $open && '' !== $end_label ) {
+				$clean[ $open ] = $end_label;
+			}
+		}
+
+		return $clean;
+	}
 
 	/**
 	 * Reset error state.
@@ -170,13 +223,20 @@ class Validator {
 	 *   # BEGIN WordPress
 	 *   # END WordPress
 	 *
+	 * Third-party blocks that open without "# BEGIN" are accepted when listed
+	 * in known_block_formats(), e.g. Wordfence:
+	 *   # Wordfence WAF
+	 *   # END Wordfence WAF
+	 *
 	 * @since 1.0.0
 	 *
 	 * @param string[] $lines Lines to inspect.
 	 * @return void
 	 */
 	protected function check_begin_end_balance( $lines ) {
-		$stack = array();
+		$stack       = array();
+		$openers     = $this->known_block_formats();
+		$open_counts = array();
 
 		foreach ( $lines as $i => $line ) {
 			if ( preg_match( '/^\s*#\s*BEGIN\s+(.+?)\s*$/', $line, $m ) ) {
@@ -187,10 +247,23 @@ class Validator {
 
 			if ( preg_match( '/^\s*#\s*END\s+(.+?)\s*$/', $line, $m ) ) {
 				$label = trim( $m[1] );
-				$last  = empty( $stack ) ? null : array_pop( $stack );
+
+				// Closes an earlier known third-party opener; leaves BEGIN blocks alone.
+				if ( ( empty( $stack ) || end( $stack ) !== $label ) && ! empty( $open_counts[ $label ] ) ) {
+					--$open_counts[ $label ];
+					continue;
+				}
+
+				$last = empty( $stack ) ? null : array_pop( $stack );
 				if ( $last !== $label ) {
 					$this->errors[] = 'BEGIN/END mismatch near line ' . ( $i + 1 ) . ' (END ' . $label . ' without matching BEGIN).';
 				}
+				continue;
+			}
+
+			if ( ! empty( $openers ) && preg_match( '/^\s*#\s*(.+?)\s*$/', $line, $m ) && isset( $openers[ trim( $m[1] ) ] ) ) {
+				$end_label                 = $openers[ trim( $m[1] ) ];
+				$open_counts[ $end_label ] = ( $open_counts[ $end_label ] ?? 0 ) + 1;
 			}
 		}
 

@@ -470,4 +470,92 @@ class ScannerWPUnitTest extends \lucatume\WPBrowser\TestCase\WPTestCase {
 
 		$this->clean_up( $path );
 	}
+
+	/**
+	 * A file carrying Wordfence's firewall block is valid, so the Updater and
+	 * the daily cron do not roll it back to the backup.
+	 *
+	 * @return void
+	 */
+	public function test_diagnose_accepts_a_wordfence_waf_block() {
+		$path = $this->write_block( "# BEGIN A\nHeader set X \"1\"\n# END A" );
+		// phpcs:ignore WordPress.WP.AlternativeFunctions.file_system_operations_file_put_contents -- writing a local fixture.
+		file_put_contents( $path, "# Wordfence WAF\n<IfModule LiteSpeed>\nphp_value auto_prepend_file '/tmp/wordfence-waf.php'\n</IfModule>\n# END Wordfence WAF\n", FILE_APPEND );
+
+		$diagnosis = $this->create_scanner( $path )->diagnose( $this->create_context_stub() );
+
+		$this->assertTrue( $diagnosis['file_valid'] );
+
+		$this->clean_up( $path );
+	}
+
+	/**
+	 * Writing the managed block on a Wordfence site is kept, not rolled back.
+	 *
+	 * @return void
+	 */
+	public function test_apply_is_not_rolled_back_on_a_wordfence_site() {
+		$path     = tempnam( sys_get_temp_dir(), 'nfd-htaccess-' );
+		$wf_block = "# Wordfence WAF\n<IfModule LiteSpeed>\nphp_value auto_prepend_file '/tmp/wordfence-waf.php'\n</IfModule>\n# END Wordfence WAF\n";
+		// phpcs:ignore WordPress.WP.AlternativeFunctions.file_system_operations_file_put_contents -- writing a local fixture.
+		file_put_contents( $path, "# BEGIN WordPress\nRewriteEngine On\n# END WordPress\n" . $wf_block );
+
+		// The post-write check must read the same fixture, not the install's real file.
+		$scanner_for = function ( $updater ) use ( $path ) {
+			return $this->create_scanner( $path, $updater );
+		};
+		$context = $this->create_context_stub();
+
+		// phpcs:disable Squiz.Commenting.FunctionComment.Missing -- overrides inherit the parent docblocks
+		$updater = new class( $path, $scanner_for, $context ) extends Updater {
+			/**
+			 * Fixture path.
+			 *
+			 * @var string
+			 */
+			private $test_path;
+
+			/**
+			 * Builds a path-isolated scanner.
+			 *
+			 * @var callable
+			 */
+			private $scanner_for;
+
+			/**
+			 * Context passed to diagnose().
+			 *
+			 * @var object
+			 */
+			private $context;
+			public function __construct( $test_path, $scanner_for, $context ) {
+				parent::__construct();
+				$this->test_path   = $test_path;
+				$this->scanner_for = $scanner_for;
+				$this->context     = $context;
+			}
+			protected function get_htaccess_path() {
+				return $this->test_path;
+			}
+			protected function scan_for_issues() {
+				$diagnosis = call_user_func( $this->scanner_for, $this )->diagnose( $this->context );
+				return empty( $diagnosis['file_valid'] );
+			}
+		};
+		// phpcs:enable Squiz.Commenting.FunctionComment.Missing
+
+		$result = $updater->apply_managed_block( "# BEGIN Newfold Test\nHeader set X \"1\"\n# END Newfold Test", 'example.com', '1.0.1' );
+
+		// phpcs:ignore WordPress.WP.AlternativeFunctions.file_get_contents_file_get_contents -- reading a local fixture.
+		$written = (string) file_get_contents( $path );
+		$this->assertTrue( $result );
+		$this->assertStringContainsString( 'Header set X "1"', $written );
+		$this->assertStringContainsString( $wf_block, $written );
+
+		$backup = dirname( $path ) . DIRECTORY_SEPARATOR . '.htaccess.nfd-backup';
+		if ( file_exists( $backup ) ) {
+			wp_delete_file( $backup );
+		}
+		$this->clean_up( $path );
+	}
 }
